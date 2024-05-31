@@ -24,6 +24,15 @@ interface IUniswapV3TokenizedLpFactory {
         uint256 count
     );
 
+    error IUniswapV3TokenizedLpFactory_ZeroAddress();
+    error IUniswapV3TokenizedLpFactory_IdenticalTokens();
+    error IUniswapV3TokenizedLpFactory_NoAllowedTokens();
+    error IUniswapV3TokenizedLpFactory_VaultExists();
+    error IUniswapV3TokenizedLpFactory_InvalidFee();
+    error IUniswapV3TokenizedLpFactory_PoolMustExist();
+    error IUniswapV3TokenizedLpFactory_ObservationCardinalityTooLow();
+    error IUniswapV3TokenizedLpFactory_MustBeLteToPrecision();
+
     function uniswapV3Factory() external view returns (address);
 
     function feeRecipient() external view returns (address);
@@ -38,13 +47,13 @@ interface IUniswapV3TokenizedLpFactory {
 
     function setBaseFeeSplit(uint256 _baseFeeSplit) external;
 
-    function createICHIVault(
+    function createUniswapV3TokenizedLp(
         address tokenA,
         bool allowTokenA,
         address tokenB,
         bool allowTokenB,
         uint24 fee
-    ) external returns (address ichiVault);
+    ) external returns (address tokenizedLp);
 
     function genKey(
         address deployer,

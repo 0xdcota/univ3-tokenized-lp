@@ -61,12 +61,10 @@ contract UniswapV3TokenizedLp is
         bool _allowToken1,
         address __owner,
         uint32 _twapPeriod
-    ) ERC20("Uniswap-V3 Tokenized Lp", "UniV3Lp") Ownable(msg.sender) {
-        require(_pool != NULL_ADDRESS, "IV.constructor: zero address");
-        require(
-            _allowToken0 || _allowToken1,
-            "IV.constructor: no allowed tokens"
-        );
+    ) ERC20("UniswapV3 Tokenized Lp", "UniV3Lp") Ownable(__owner) {
+        if (_pool == NULL_ADDRESS) revert IUniswapV3TokenizedLp_ZeroAddress();
+        if (!_allowToken0 && !_allowToken1)
+            revert IUniswapV3TokenizedLp_NoAllowedTokens();
 
         factory = msg.sender;
         pool = _pool;
@@ -96,7 +94,7 @@ contract UniswapV3TokenizedLp is
     }
 
     function setTwapPeriod(uint32 newTwapPeriod) external onlyOwner {
-        require(newTwapPeriod > 0, "IV.setTwapPeriod: missing period");
+        if (newTwapPeriod == 0) revert IUniswapV3TokenizedLp_ZeroValue();
         twapPeriod = newTwapPeriod;
         emit SetTwapPeriod(msg.sender, newTwapPeriod);
     }
@@ -113,17 +111,15 @@ contract UniswapV3TokenizedLp is
         uint256 deposit1,
         address to
     ) external override nonReentrant returns (uint256 shares) {
-        require(allowToken0 || deposit0 == 0, "IV.deposit: token0 not allowed");
-        require(allowToken1 || deposit1 == 0, "IV.deposit: token1 not allowed");
-        require(
-            deposit0 > 0 || deposit1 > 0,
-            "IV.deposit: deposits must be > 0"
-        );
-        require(
-            deposit0 < deposit0Max && deposit1 < deposit1Max,
-            "IV.deposit: deposits too large"
-        );
-        require(to != NULL_ADDRESS && to != address(this), "IV.deposit: to");
+        if (!allowToken0 && deposit0 > 0)
+            revert IUniswapV3TokenizedLp_Token0NotAllowed();
+        if (!allowToken1 && deposit1 > 0)
+            revert IUniswapV3TokenizedLp_Token1NotAllowed();
+        if (deposit0 == 0 && deposit1 == 0)
+            revert IUniswapV3TokenizedLp_ZeroValue();
+        if (deposit0 > deposit0Max || deposit1 > deposit1Max)
+            revert IUniswapV3TokenizedLp_MoreThanMaxDeposit();
+        if (to == NULL_ADDRESS) revert IUniswapV3TokenizedLp_ZeroAddress();
 
         // update fees for inclusion in total pool amounts
         (uint128 baseLiquidity, , ) = _position(baseLower, baseUpper);
@@ -133,10 +129,8 @@ contract UniswapV3TokenizedLp is
                 baseUpper,
                 0
             );
-            require(
-                burn0 == 0 && burn1 == 0,
-                "IV.deposit: unexpected burn (1)"
-            );
+            if (burn0 != 0 || burn1 != 0)
+                revert IUniswapV3TokenizedLp_UnexpectedBurn(133);
         }
 
         (uint128 limitLiquidity, , ) = _position(limitLower, limitUpper);
@@ -146,10 +140,8 @@ contract UniswapV3TokenizedLp is
                 limitUpper,
                 0
             );
-            require(
-                burn0 == 0 && burn1 == 0,
-                "IV.deposit: unexpected burn (2)"
-            );
+            if (burn0 != 0 || burn1 != 0)
+                revert IUniswapV3TokenizedLp_UnexpectedBurn(144);
         }
 
         // Spot
@@ -164,8 +156,7 @@ contract UniswapV3TokenizedLp is
         uint256 delta = (price > twap)
             ? ((price - twap) * PRECISION) / price
             : ((twap - price) * PRECISION) / twap;
-        if (delta > hysteresis)
-            require(checkHysteresis(), "IV.deposit: try later");
+        if (delta > hysteresis) require(checkHysteresis(), "try later");
 
         (uint256 pool0, uint256 pool1) = getTotalAmounts();
 
@@ -198,10 +189,8 @@ contract UniswapV3TokenizedLp is
         _mint(to, shares);
         emit Deposit(msg.sender, to, shares, deposit0, deposit1);
         // Check total supply cap not exceeded. A value of 0 means no limit.
-        require(
-            maxTotalSupply == 0 || totalSupply() <= maxTotalSupply,
-            "IV.deposit: maxTotalSupply"
-        );
+        if (maxTotalSupply != 0 && totalSupply() > maxTotalSupply)
+            revert IUniswapV3TokenizedLp_MaxTotalSupplyExceeded();
     }
 
     /**
@@ -220,8 +209,8 @@ contract UniswapV3TokenizedLp is
         nonReentrant
         returns (uint256 amount0, uint256 amount1)
     {
-        require(shares > 0, "IV.withdraw: shares");
-        require(to != NULL_ADDRESS, "IV.withdraw: to");
+        if (shares == 0) revert IUniswapV3TokenizedLp_ZeroValue();
+        if (to == NULL_ADDRESS) revert IUniswapV3TokenizedLp_ZeroAddress();
 
         // Withdraw liquidity from Uniswap pool
         (uint256 base0, uint256 base1) = _burnLiquidity(
@@ -272,18 +261,17 @@ contract UniswapV3TokenizedLp is
         int24 _limitUpper,
         int256 swapQuantity
     ) external override nonReentrant onlyOwner {
-        require(
-            _baseLower < _baseUpper &&
-                _baseLower % tickSpacing == 0 &&
-                _baseUpper % tickSpacing == 0,
-            "IV.rebalance: base position invalid"
-        );
-        require(
-            _limitLower < _limitUpper &&
-                _limitLower % tickSpacing == 0 &&
-                _limitUpper % tickSpacing == 0,
-            "IV.rebalance: limit position invalid"
-        );
+        if (
+            _baseLower >= _baseUpper ||
+            _baseLower % tickSpacing != 0 ||
+            _baseUpper % tickSpacing != 0
+        ) revert IUniswapV3TokenizedLp_BasePositionInvalid();
+
+        if (
+            _limitLower >= _limitUpper ||
+            _limitLower % tickSpacing != 0 ||
+            _limitUpper % tickSpacing != 0
+        ) revert IUniswapV3TokenizedLp_LimitPositionInvalid();
 
         // update fees
         (uint128 baseLiquidity, , ) = _position(baseLower, baseUpper);
@@ -382,12 +370,12 @@ contract UniswapV3TokenizedLp is
         address feeRecipient = IUniswapV3TokenizedLpFactory(factory)
             .feeRecipient();
 
-        require(baseFee <= PRECISION, "IV.rebalance: fee must be <= 10**18");
-        require(
-            baseFeeSplit <= PRECISION,
-            "IV.rebalance: split must be <= 10**18"
-        );
-        require(feeRecipient != NULL_ADDRESS, "IV.rebalance: zero address");
+        if (baseFee > PRECISION)
+            revert IUniswapV3TokenizedLp_FeeMustBeLtePrecision();
+        if (baseFeeSplit > PRECISION)
+            revert IUniswapV3TokenizedLp_SplitMustBeLtePrecision();
+        if (feeRecipient == NULL_ADDRESS)
+            revert IUniswapV3TokenizedLp_ZeroAddress();
 
         if (baseFee > 0) {
             if (fees0 > 0) {
@@ -529,7 +517,8 @@ contract UniswapV3TokenizedLp is
         uint256 amount1,
         bytes calldata data
     ) external override {
-        require(msg.sender == address(pool), "cb1");
+        if (msg.sender != address(pool))
+            revert IUniswapV3TokenizedLp_MustBePool(523);
         address payer = abi.decode(data, (address));
 
         if (payer == address(this)) {
@@ -555,7 +544,8 @@ contract UniswapV3TokenizedLp is
         int256 amount1Delta,
         bytes calldata data
     ) external override {
-        require(msg.sender == address(pool), "cb2");
+        if (msg.sender != address(pool))
+            revert IUniswapV3TokenizedLp_MustBePool(550);
         address payer = abi.decode(data, (address));
 
         if (amount0Delta > 0) {
@@ -687,7 +677,7 @@ contract UniswapV3TokenizedLp is
      @param x input value
      */
     function _uint128Safe(uint256 x) internal pure returns (uint128) {
-        require(x <= type(uint128).max, "IV.128_OF");
+        if (x > type(uint128).max) revert IUniswapV3TokenizedLp_UnsafeCast();
         return uint128(x);
     }
 
@@ -766,7 +756,7 @@ contract UniswapV3TokenizedLp is
      */
     function currentTick() public view returns (int24 tick) {
         (, int24 tick_, , , , , bool unlocked_) = IUniswapV3Pool(pool).slot0();
-        require(unlocked_, "IV.currentTick: the pool is locked");
+        if (!unlocked_) revert IUniswapV3TokenizedLp_PoolLocked();
         tick = tick_;
     }
 
