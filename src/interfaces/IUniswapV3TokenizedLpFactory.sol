@@ -8,10 +8,7 @@ interface IUniswapV3TokenizedLpFactory {
 
     event BaseFeeSplit(address indexed sender, uint256 baseFeeSplit);
 
-    event DeployUniswapV3TokenizedLpFactory(
-        address indexed sender,
-        address uniswapV3Factory
-    );
+    event DeployUniswapV3TokenizedLpFactory(address indexed sender, address uniswapV3Factory);
 
     event UniswapV3TokenizedLpCreated(
         address indexed sender,
@@ -47,20 +44,12 @@ interface IUniswapV3TokenizedLpFactory {
 
     function setBaseFeeSplit(uint256 _baseFeeSplit) external;
 
-    function createUniswapV3TokenizedLp(
-        address tokenA,
-        bool allowTokenA,
-        address tokenB,
-        bool allowTokenB,
-        uint24 fee
-    ) external returns (address tokenizedLp);
+    function createUniswapV3TokenizedLp(address tokenA, bool allowTokenA, address tokenB, bool allowTokenB, uint24 fee)
+        external
+        returns (address tokenizedLp);
 
-    function genKey(
-        address deployer,
-        address token0,
-        address token1,
-        uint24 fee,
-        bool allowToken0,
-        bool allowToken1
-    ) external pure returns (bytes32 key);
+    function genKey(address deployer, address token0, address token1, uint24 fee, bool allowToken0, bool allowToken1)
+        external
+        pure
+        returns (bytes32 key);
 }

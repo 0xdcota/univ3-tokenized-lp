@@ -13,21 +13,9 @@ interface IUniswapV3TokenizedLp {
 
     event SetTwapPeriod(address sender, uint32 newTwapPeriod);
 
-    event Deposit(
-        address indexed sender,
-        address indexed to,
-        uint256 shares,
-        uint256 amount0,
-        uint256 amount1
-    );
+    event Deposit(address indexed sender, address indexed to, uint256 shares, uint256 amount0, uint256 amount1);
 
-    event Withdraw(
-        address indexed sender,
-        address indexed to,
-        uint256 shares,
-        uint256 amount0,
-        uint256 amount1
-    );
+    event Withdraw(address indexed sender, address indexed to, uint256 shares, uint256 amount0, uint256 amount1);
 
     event Rebalance(
         int24 tick,
@@ -42,11 +30,7 @@ interface IUniswapV3TokenizedLp {
 
     event Hysteresis(address indexed sender, uint256 hysteresis);
 
-    event DepositMax(
-        address indexed sender,
-        uint256 deposit0Max,
-        uint256 deposit1Max
-    );
+    event DepositMax(address indexed sender, uint256 deposit0Max, uint256 deposit1Max);
 
     event Affiliate(address indexed sender, address affiliate);
 
@@ -106,13 +90,8 @@ interface IUniswapV3TokenizedLp {
 
     function withdraw(uint256, address) external returns (uint256, uint256);
 
-    function rebalance(
-        int24 _baseLower,
-        int24 _baseUpper,
-        int24 _limitLower,
-        int24 _limitUpper,
-        int256 swapQuantity
-    ) external;
+    function rebalance(int24 _baseLower, int24 _baseUpper, int24 _limitLower, int24 _limitUpper, int256 swapQuantity)
+        external;
 
     function setDepositMax(uint256 _deposit0Max, uint256 _deposit1Max) external;
 

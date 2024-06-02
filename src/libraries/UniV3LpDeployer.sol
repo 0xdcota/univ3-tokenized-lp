@@ -17,17 +17,7 @@ library UniV3LpDeployer {
     ) public returns (address uniswapV3TokenizedLp) {
         uniswapV3TokenizedLp = address(
             new UniswapV3TokenizedLp{
-                salt: keccak256(
-                    abi.encodePacked(
-                        msg.sender,
-                        token0,
-                        allowToken0,
-                        token1,
-                        allowToken1,
-                        fee,
-                        tickSpacing
-                    )
-                )
+                salt: keccak256(abi.encodePacked(msg.sender, token0, allowToken0, token1, allowToken1, fee, tickSpacing))
             }(pool, allowToken0, allowToken1, msg.sender, twapPeriod)
         );
     }
