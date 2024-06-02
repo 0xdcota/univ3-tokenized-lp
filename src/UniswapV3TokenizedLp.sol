@@ -49,7 +49,7 @@ contract UniswapV3TokenizedLp is
     uint32 public twapPeriod;
 
     /**
-     @notice creates an instance of UniswapV3TokenizedLp based on the pool. allowToken parameters control whether the UniswapV3TokenizedLp allows one-sided or two-sided liquidity provision
+     @notice creates an instance of UniswapV3TokenizedLp based on the pool. `allowTokenX` params control whether the UniswapV3TokenizedLp allows one-sided or two-sided liquidity provision
      @param _pool Uniswap V3 pool for which liquidity is managed
      @param _allowToken0 flag that indicates whether token0 is accepted during deposit
      @param _allowToken1 flag that indicates whether token1 is accepted during deposit
@@ -100,11 +100,11 @@ contract UniswapV3TokenizedLp is
     }
 
     /**
-     @notice Distributes shares to depositor equal to the token1 value of his deposit multiplied by the ratio of total liquidity shares issued divided by the pool's AUM measured in token1 value. 
+     @notice Distributes shares to depositor equal to the token1 value of his deposit multiplied by the ratio of total lp shares issued divided by the pool's AUM measured in token1 value. 
      @param deposit0 Amount of token0 transferred from sender to UniswapV3TokenizedLp
-     @param deposit1 Amount of token0 transferred from sender to UniswapV3TokenizedLp
-     @param to Address to which liquidity tokens are minted
-     @param shares Quantity of liquidity tokens minted as a result of deposit
+     @param deposit1 Amount of token1 transferred from sender to UniswapV3TokenizedLp
+     @param to Address to which lp tokens are minted
+     @param shares Quantity of lp tokens minted as a result of deposit
      */
     function deposit(
         uint256 deposit0,
