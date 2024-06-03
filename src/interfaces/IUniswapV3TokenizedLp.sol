@@ -2,17 +2,6 @@
 pragma solidity ^0.8.0;
 
 interface IUniswapV3TokenizedLp {
-    event DeployUniV3TokenizedLp(
-        address indexed sender,
-        address indexed pool,
-        bool allowToken0,
-        bool allowToken1,
-        address owner,
-        uint256 twapPeriod
-    );
-
-    event SetTwapPeriod(address sender, uint32 newTwapPeriod);
-
     event Deposit(address indexed sender, address indexed to, uint256 shares, uint256 amount0, uint256 amount1);
 
     event Withdraw(address indexed sender, address indexed to, uint256 shares, uint256 amount0, uint256 amount1);
@@ -49,8 +38,6 @@ interface IUniswapV3TokenizedLp {
     error IUniswapV3TokenizedLp_MustBePool(uint256 line);
     error IUniswapV3TokenizedLp_UnsafeCast();
     error IUniswapV3TokenizedLp_PoolLocked();
-
-    function factory() external view returns (address);
 
     function pool() external view returns (address);
 

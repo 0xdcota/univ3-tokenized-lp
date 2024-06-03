@@ -6,19 +6,20 @@ import {IUniswapV3TokenizedLpFactory} from "./interfaces/IUniswapV3TokenizedLpFa
 import {IUniswapV3MintCallback} from "@uniswap-v3-core/interfaces/callback/IUniswapV3MintCallback.sol";
 import {IUniswapV3SwapCallback} from "@uniswap-v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 import {IUniswapV3Pool, IUniswapV3PoolActions} from "@uniswap-v3-core/interfaces/IUniswapV3Pool.sol";
-import {UniswapV3MathHelper} from "./libraries/UniswapV3MathHelper.sol";
-import {ERC20, IERC20} from "@openzeppelin/token/ERC20/ERC20.sol";
-import {SafeERC20} from "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
-import {ReentrancyGuard} from "@openzeppelin/utils/ReentrancyGuard.sol";
-import {Ownable} from "@openzeppelin/access/Ownable.sol";
+import {UniswapV3MathHelper, TickMath} from "./libraries/UniswapV3MathHelper.sol";
+import {ERC20Upgradeable} from "@openzeppelin-upgradeable/token/ERC20/ERC20Upgradeable.sol";
+import {SafeERC20, IERC20} from "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuardUpgradeable} from "@openzeppelin-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import {OwnableUpgradeable} from "@openzeppelin-upgradeable/access/OwnableUpgradeable.sol";
+import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
 
-contract UniswapV3TokenizedLp is
+contract UniV3TokenizedLpExtOracle is
     IUniswapV3TokenizedLp,
     IUniswapV3MintCallback,
     IUniswapV3SwapCallback,
-    ERC20,
-    ReentrancyGuard,
-    Ownable
+    ERC20Upgradeable,
+    ReentrancyGuardUpgradeable,
+    OwnableUpgradeable
 {
     using SafeERC20 for IERC20;
 
@@ -28,12 +29,20 @@ contract UniswapV3TokenizedLp is
         bool allowToken0,
         bool allowToken1,
         address owner,
-        uint256 twapPeriod
+        address usdOracle0Ref,
+        address usdOracle1Ref
     );
+    event FeeRecipient(address indexed sender, address feeRecipient);
+    event BaseFee(address indexed sender, uint256 baseFee);
+    event BaseFeeSplit(address indexed sender, uint256 baseFeeSplit);
+    event UsdOracleReferences(address indexed sender, address usd0RefOracle, address usd1RefOracle);
 
-    event SetTwapPeriod(address sender, uint32 newTwapPeriod);
+    uint256 public constant PRECISION = 10 ** 18;
+    uint256 public constant PERCENT = 100;
+    address public constant NULL_ADDRESS = address(0);
+    uint256 public constant DEFAULT_BASE_FEE = 10 ** 17; // 10%
+    uint256 public constant DEFAULT_BASE_FEE_SPLIT = 5 * 10 ** 17; // 50%
 
-    address public immutable factory;
     address public immutable override pool;
     address public immutable override token0;
     address public immutable override token1;
@@ -42,7 +51,6 @@ contract UniswapV3TokenizedLp is
     uint24 public immutable override fee;
     int24 public immutable override tickSpacing;
 
-    address public override affiliate;
     int24 public override baseLower;
     int24 public override baseUpper;
     int24 public override limitLower;
@@ -53,11 +61,15 @@ contract UniswapV3TokenizedLp is
     uint256 public override maxTotalSupply;
     uint256 public override hysteresis;
 
-    uint256 public constant PRECISION = 10 ** 18;
-    uint256 constant PERCENT = 100;
-    address constant NULL_ADDRESS = address(0);
-
     uint32 public twapPeriod;
+    IPriceFeed public usdOracle0Ref;
+    IPriceFeed public usdOracle1Ref;
+
+    uint256 public baseFee;
+    uint256 public baseFeeSplit;
+
+    address public feeRecipient;
+    address public override affiliate;
 
     /**
      * @notice creates an instance of UniswapV3TokenizedLp based on the pool. `allowTokenX` params control whether the UniswapV3TokenizedLp allows one-sided or two-sided liquidity provision
@@ -66,39 +78,107 @@ contract UniswapV3TokenizedLp is
      *  @param _allowToken1 flag that indicates whether token1 is accepted during deposit
      *  @param __owner Owner of the UniswapV3TokenizedLp
      */
-    constructor(address _pool, bool _allowToken0, bool _allowToken1, address __owner, uint32 _twapPeriod)
-        ERC20("UniswapV3 Tokenized Lp", "UniV3Lp")
-        Ownable(__owner)
-    {
+    constructor(
+        address _pool,
+        bool _allowToken0,
+        bool _allowToken1,
+        address __owner,
+        address _usdOracle0Ref,
+        address _usdOracle1Ref
+    ) {
         if (_pool == NULL_ADDRESS) revert IUniswapV3TokenizedLp_ZeroAddress();
         if (!_allowToken0 && !_allowToken1) {
             revert IUniswapV3TokenizedLp_NoAllowedTokens();
         }
 
-        factory = msg.sender;
         pool = _pool;
         token0 = IUniswapV3Pool(_pool).token0();
         token1 = IUniswapV3Pool(_pool).token1();
+
+        __ERC20_init(
+            string(
+                abi.encodePacked(
+                    "UniV3 Lp Token: ", ERC20Upgradeable(token0).name(), " - ", ERC20Upgradeable(token1).name()
+                )
+            ),
+            string(
+                abi.encodePacked("uV3Lp-", ERC20Upgradeable(token0).symbol(), " - ", ERC20Upgradeable(token1).symbol())
+            )
+        );
+        __ReentrancyGuard_init();
+        __Ownable_init(msg.sender);
+
         fee = IUniswapV3Pool(_pool).fee();
         allowToken0 = _allowToken0;
         allowToken1 = _allowToken1;
-        twapPeriod = _twapPeriod;
         tickSpacing = IUniswapV3Pool(_pool).tickSpacing();
-
-        transferOwnership(__owner);
 
         maxTotalSupply = 0; // no cap
         hysteresis = PRECISION / PERCENT; // 1% threshold
         deposit0Max = type(uint256).max; // max uint256
         deposit1Max = type(uint256).max; // max uint256
+        feeRecipient = msg.sender;
         affiliate = NULL_ADDRESS; // by default there is no affiliate address
-        emit DeployUniV3TokenizedLp(msg.sender, _pool, _allowToken0, _allowToken1, __owner, _twapPeriod);
+        baseFee = DEFAULT_BASE_FEE;
+        baseFeeSplit = DEFAULT_BASE_FEE_SPLIT;
+        usdOracle0Ref = IPriceFeed(_usdOracle0Ref);
+        usdOracle1Ref = IPriceFeed(_usdOracle1Ref);
+        emit DeployUniV3TokenizedLp(
+            msg.sender, _pool, _allowToken0, _allowToken1, __owner, _usdOracle0Ref, _usdOracle1Ref
+        );
     }
 
-    function setTwapPeriod(uint32 newTwapPeriod) external onlyOwner {
-        if (newTwapPeriod == 0) revert IUniswapV3TokenizedLp_ZeroValue();
-        twapPeriod = newTwapPeriod;
-        emit SetTwapPeriod(msg.sender, newTwapPeriod);
+    /**
+     * @notice Sets the usdOracle0Ref and usdOracle1Ref addresses
+     * @param usdOracle0Ref_ address of token0 USD oracle
+     * @param usdOracle1Ref_ address of token1 USD oracle
+     */
+    function setUsdOracles(address usdOracle0Ref_, address usdOracle1Ref_) external onlyOwner {
+        if (usdOracle0Ref_ == NULL_ADDRESS || usdOracle1Ref_ == NULL_ADDRESS) {
+            revert IUniswapV3TokenizedLp_ZeroAddress();
+        }
+        usdOracle0Ref = IPriceFeed(usdOracle0Ref_);
+        usdOracle1Ref = IPriceFeed(usdOracle1Ref_);
+        emit UsdOracleReferences(msg.sender, usdOracle0Ref_, usdOracle1Ref_);
+    }
+
+    /**
+     * @notice Sets the fee recipient account address, where portion of the collected swap fees will be distributed
+     *  @dev onlyOwner
+     *  @param _feeRecipient The fee recipient account address
+     */
+    function setFeeRecipient(address _feeRecipient) external onlyOwner {
+        if (_feeRecipient == address(0)) {
+            revert IUniswapV3TokenizedLp_ZeroAddress();
+        }
+        feeRecipient = _feeRecipient;
+        emit FeeRecipient(msg.sender, _feeRecipient);
+    }
+
+    /**
+     * @notice Sets the fee percentage to be taken from the accumulated pool's swap fees. This percentage is then distributed between the feeRecipient and affiliate accounts
+     *  @dev onlyOwner
+     *  @param _baseFee The fee percentage to be taken from the accumulated pool's swap fee
+     */
+    function setBaseFee(uint256 _baseFee) external onlyOwner {
+        if (_baseFee > PRECISION) {
+            revert IUniswapV3TokenizedLp_FeeMustBeLtePrecision();
+        }
+        baseFee = _baseFee;
+        emit BaseFee(msg.sender, _baseFee);
+    }
+
+    /**
+     * @notice Sets the fee split ratio between feeRecipient and affiliate accounts. The ratio is set as (baseFeeSplit)/(100 - baseFeeSplit), that is if we want 20/80 ratio (with feeRecipient getting 20%), baseFeeSplit should be set to 20
+     *  @dev onlyOwner
+     *  @param _baseFeeSplit The fee split ratio between feeRecipient and affiliate accounts
+     */
+    function setBaseFeeSplit(uint256 _baseFeeSplit) external onlyOwner {
+        if (_baseFeeSplit > PRECISION) {
+            revert IUniswapV3TokenizedLp_SplitMustBeLtePrecision();
+        }
+        baseFeeSplit = _baseFeeSplit;
+        emit BaseFeeSplit(msg.sender, _baseFeeSplit);
     }
 
     /**
@@ -146,21 +226,21 @@ contract UniswapV3TokenizedLp is
         }
 
         // Spot
-
         uint256 price = _fetchSpot(token0, token1, currentTick(), PRECISION);
 
-        // TWAP
-
-        uint256 twap = _fetchTwap(pool, token0, token1, twapPeriod, PRECISION);
+        // External Oracle price
+        uint256 oraclePrice = _fetchOracle(token0, token1, PRECISION);
 
         // if difference between spot and twap is too big, check if the price may have been manipulated in this block
-        uint256 delta = (price > twap) ? ((price - twap) * PRECISION) / price : ((twap - price) * PRECISION) / twap;
+        uint256 delta = (price > oraclePrice)
+            ? ((price - oraclePrice) * PRECISION) / price
+            : ((oraclePrice - price) * PRECISION) / oraclePrice;
         if (delta > hysteresis) require(checkHysteresis(), "try later");
 
         (uint256 pool0, uint256 pool1) = getTotalAmounts();
 
         // aggregated deposit
-        uint256 deposit0PricedInToken1 = (deposit0 * ((price < twap) ? price : twap)) / PRECISION;
+        uint256 deposit0PricedInToken1 = (deposit0 * ((price < oraclePrice) ? price : oraclePrice)) / PRECISION;
 
         if (deposit0 > 0) {
             IERC20(token0).safeTransferFrom(msg.sender, address(this), deposit0);
@@ -172,7 +252,7 @@ contract UniswapV3TokenizedLp is
         shares = deposit1 + deposit0PricedInToken1;
 
         if (totalSupply() != 0) {
-            uint256 pool0PricedInToken1 = (pool0 * ((price > twap) ? price : twap)) / PRECISION;
+            uint256 pool0PricedInToken1 = (pool0 * ((price > oraclePrice) ? price : oraclePrice)) / PRECISION;
             shares = (shares * totalSupply()) / (pool0PricedInToken1 + pool1);
         }
         _mint(to, shares);
@@ -221,6 +301,28 @@ contract UniswapV3TokenizedLp is
     }
 
     /**
+     * TODO WIP
+     */
+    // function autoRebalance() public nonReentrant {
+    //     // Get spot and external oracle prices
+    //     uint256 price = _fetchSpot(token0, token1, currentTick(), PRECISION);
+    //     uint256 oraclePrice = _fetchOracle(token0, token1, PRECISION);
+
+    //     // if difference between spot and oraclePrice is too big, check if the price may have been manipulated in this block
+    //     uint256 delta = (price > oraclePrice)
+    //         ? ((price - oraclePrice) * PRECISION) / price
+    //         : ((oraclePrice - price) * PRECISION) / oraclePrice;
+    //     if (delta > hysteresis) {
+    //         // TODO
+    //         int24 currentTick = currentTick();
+    //         // Convert oracle price to tick
+    //         int24 oracleTick = TickMath.getTickAtSqrtRatio(uint160(oraclePrice));
+    //     } else {
+    //         return;
+    //     }
+    // }
+
+    /**
      * @notice Updates UniswapV3TokenizedLp's LP positions.
      *  @dev The base position is placed first with as much liquidity as possible and is typically symmetric around the current price. This order should use up all of one token, leaving some unused quantity of the other. This unused amount is then placed as a single-sided order.
      *  @param _baseLower The lower tick of the base position
@@ -230,7 +332,7 @@ contract UniswapV3TokenizedLp is
      *  @param swapQuantity Quantity of tokens to swap; if quantity is positive, `swapQuantity` token0 are swapped for token1, if negative, `swapQuantity` token1 is swapped for token0
      */
     function rebalance(int24 _baseLower, int24 _baseUpper, int24 _limitLower, int24 _limitUpper, int256 swapQuantity)
-        external
+        public
         override
         nonReentrant
         onlyOwner
@@ -306,11 +408,12 @@ contract UniswapV3TokenizedLp is
      *  @param fees1 fees for token1
      */
     function _distributeFees(uint256 fees0, uint256 fees1) internal {
-        uint256 baseFee = IUniswapV3TokenizedLpFactory(factory).baseFee();
-        // if there is no affiliate 100% of the baseFee should go to feeRecipient
-        uint256 baseFeeSplit =
-            (affiliate == NULL_ADDRESS) ? PRECISION : IUniswapV3TokenizedLpFactory(factory).baseFeeSplit();
-        address feeRecipient = IUniswapV3TokenizedLpFactory(factory).feeRecipient();
+        /// REMOVE
+        // uint256 baseFee = IUniswapV3TokenizedLpFactory(factory).baseFee();
+        // // if there is no affiliate 100% of the baseFee should go to feeRecipient
+        // uint256 baseFeeSplit =
+        //     (affiliate == NULL_ADDRESS) ? PRECISION : IUniswapV3TokenizedLpFactory(factory).baseFeeSplit();
+        // address feeRecipient = IUniswapV3TokenizedLpFactory(factory).feeRecipient();
 
         if (baseFee > PRECISION) {
             revert IUniswapV3TokenizedLp_FeeMustBeLtePrecision();
@@ -624,7 +727,7 @@ contract UniswapV3TokenizedLp is
     }
 
     /**
-     * @notice returns equivalent _tokenOut for _amountIn, _tokenIn using spot price
+     * @notice returns equivalent _tokenOut for _amountIn, _tokenIn using spot pool price
      *  @param _tokenIn token the input amount is in
      *  @param _tokenOut token for the output amount
      *  @param _tick tick for the spot price
@@ -640,26 +743,35 @@ contract UniswapV3TokenizedLp is
     }
 
     /**
-     * @notice returns equivalent _tokenOut for _amountIn, _tokenIn using TWAP price
-     *  @param _pool Uniswap V3 pool address to be used for price checking
-     *  @param _tokenIn token the input amount is in
-     *  @param _tokenOut token for the output amount
-     *  @param _twapPeriod the averaging time period
-     *  @param _amountIn amount in _tokenIn
+     * @notice returns equivalent _tokenOut for _amountIn, _tokenIn using external oracle price
+     *  @param tokenIn_ token the input amount is in
+     *  @param tokenOut_ token for the output amount
+     *  @param amountIn_ amount in _tokenIn
      *  @param amountOut equivalent amount in _tokenOut
      */
-    function _fetchTwap(address _pool, address _tokenIn, address _tokenOut, uint32 _twapPeriod, uint256 _amountIn)
+    function _fetchOracle(address tokenIn_, address tokenOut_, uint256 amountIn_)
         internal
         view
         returns (uint256 amountOut)
     {
-        // Leave twapTick as a int256 to avoid solidity casting
-        int256 twapTick = UniswapV3MathHelper.consult(_pool, _twapPeriod);
-        return UniswapV3MathHelper.getQuoteAtTick(
-            int24(twapTick), // can assume safe being result from consult()
-            UniswapV3MathHelper.toUint128(_amountIn),
-            _tokenIn,
-            _tokenOut
-        );
+        uint256 valueIn = tokenIn_ == token0
+            ? _getUsdValue(tokenIn_, amountIn_, usdOracle0Ref)
+            : _getUsdValue(tokenIn_, amountIn_, usdOracle1Ref);
+
+        amountOut = tokenOut_ == token0
+            ? _getTokenFromUsdValue(tokenOut_, usdOracle0Ref, valueIn)
+            : _getTokenFromUsdValue(tokenOut_, usdOracle1Ref, valueIn);
+    }
+
+    function _getUsdValue(address token_, uint256 amount_, IPriceFeed usdOracle_) internal view returns (uint256) {
+        return (uint256(usdOracle_.latestAnswer()) * amount_) / uint256(ERC20Upgradeable(token_).decimals());
+    }
+
+    function _getTokenFromUsdValue(address token_, IPriceFeed usdOracle_, uint256 value_)
+        internal
+        view
+        returns (uint256)
+    {
+        return (value_ * ERC20Upgradeable(token_).decimals()) / uint256(usdOracle_.latestAnswer());
     }
 }
