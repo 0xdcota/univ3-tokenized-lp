@@ -73,19 +73,13 @@ contract UniV3TokenizedLpExtOracle is
 
     /**
      * @notice creates an instance of UniswapV3TokenizedLp based on the pool. `allowTokenX` params control whether the UniswapV3TokenizedLp allows one-sided or two-sided liquidity provision
-     *  @param _pool Uniswap V3 pool for which liquidity is managed
-     *  @param _allowToken0 flag that indicates whether token0 is accepted during deposit
-     *  @param _allowToken1 flag that indicates whether token1 is accepted during deposit
-     *  @param __owner Owner of the UniswapV3TokenizedLp
+     * @param _pool Uniswap V3 pool for which liquidity is managed
+     * @param _allowToken0 flag that indicates whether token0 is accepted during deposit
+     * @param _allowToken1 flag that indicates whether token1 is accepted during deposit
+     * @param _usdOracle0Ref address of token0 USD oracle
+     * @param _usdOracle1Ref address of token1 USD oracle
      */
-    constructor(
-        address _pool,
-        bool _allowToken0,
-        bool _allowToken1,
-        address __owner,
-        address _usdOracle0Ref,
-        address _usdOracle1Ref
-    ) {
+    constructor(address _pool, bool _allowToken0, bool _allowToken1, address _usdOracle0Ref, address _usdOracle1Ref) {
         if (_pool == NULL_ADDRESS) revert IUniswapV3TokenizedLp_ZeroAddress();
         if (!_allowToken0 && !_allowToken1) {
             revert IUniswapV3TokenizedLp_NoAllowedTokens();
@@ -124,7 +118,7 @@ contract UniV3TokenizedLpExtOracle is
         usdOracle0Ref = IPriceFeed(_usdOracle0Ref);
         usdOracle1Ref = IPriceFeed(_usdOracle1Ref);
         emit DeployUniV3TokenizedLp(
-            msg.sender, _pool, _allowToken0, _allowToken1, __owner, _usdOracle0Ref, _usdOracle1Ref
+            msg.sender, _pool, _allowToken0, _allowToken1, msg.sender, _usdOracle0Ref, _usdOracle1Ref
         );
     }
 
