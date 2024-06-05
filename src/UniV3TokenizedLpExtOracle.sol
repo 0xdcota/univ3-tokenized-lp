@@ -1,6 +1,31 @@
 // SPDX-License-Identifier: AGPL-3.0
 pragma solidity ^0.8.0;
 
+// ──────▄▀▀▄────────────────▄▀▀▄────
+// ─────▐▒▒▒▒▌──────────────▌▒▒▒▒▌───
+// ─────▌▒▒▒▒▐─────────────▐▒▒▒▒▒▐───
+// ────▐▒▒▒▒▒▒▌─▄▄▄▀▀▀▀▄▄▄─▌▒▒▒▒▒▒▌──
+// ───▄▌▒▒▒▒▒▒▒▀▒▒▒▒▒▒▒▒▒▒▀▒▒▒▒▒▒▐───
+// ─▄▀▒▐▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▌───
+// ▐▒▒▒▌▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▐───
+// ▌▒▒▌▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▌──
+// ▒▒▐▒▒▒▒▒▒▒▒▒▄▀▀▀▀▄▒▒▒▒▒▄▀▀▀▀▄▒▒▐──
+// ▒▒▌▒▒▒▒▒▒▒▒▐▌─▄▄─▐▌▒▒▒▐▌─▄▄─▐▌▒▒▌─
+// ▒▐▒▒▒▒▒▒▒▒▒▐▌▐█▄▌▐▌▒▒▒▐▌▐█▄▌▐▌▒▒▐─
+// ▒▌▒▒▒▒▒▒▒▒▒▐▌─▀▀─▐▌▒▒▒▐▌─▀▀─▐▌▒▒▒▌
+// ▒▌▒▒▒▒▒▒▒▒▒▒▀▄▄▄▄▀▒▒▒▒▒▀▄▄▄▄▀▒▒▒▒▐
+// ▒▌▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▄▄▄▒▒▒▒▒▒▒▒▒▒▒▐
+// ▒▌▒▒▒▒▒▒▒▒▒▒▒▒▀▒▀▒▒▒▀▒▒▒▀▒▀▒▒▒▒▒▒▐
+// ▒▌▒▒▒▒▒▒▒▒▒▒▒▒▒▀▒▒▒▄▀▄▒▒▒▀▒▒▒▒▒▒▒▐
+// ▒▐▒▒▒▒▒▒▒▒▒▒▀▄▒▒▒▄▀▒▒▒▀▄▒▒▒▄▀▒▒▒▒▐
+// ▒▓▌▒▒▒▒▒▒▒▒▒▒▒▀▀▀▒▒▒▒▒▒▒▀▀▀▒▒▒▒▒▒▐
+// ▒▓▓▌▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▌
+// ▒▒▓▐▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▌─
+// ▒▒▓▓▀▀▄▄▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▐──
+// ▒▒▒▓▓▓▓▓▀▀▄▄▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▄▄▀▀▒▌─
+// ▒▒▒▒▒▓▓▓▓▓▓▓▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▒▒▒▒▒▐─
+// ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▌
+
 import {IUniswapV3TokenizedLp} from "./interfaces/IUniswapV3TokenizedLp.sol";
 import {IUniswapV3TokenizedLpFactory} from "./interfaces/IUniswapV3TokenizedLpFactory.sol";
 import {IUniswapV3MintCallback} from "@uniswap-v3-core/interfaces/callback/IUniswapV3MintCallback.sol";
@@ -40,6 +65,7 @@ contract UniV3TokenizedLpExtOracle is
     event BaseBpsRanges(address indexed sender, uint256 baseBpsRangeLower, uint256 baseBpsRangeUpper);
 
     error IUniswapV3TokenizedLp_InvalidBaseBpsRange();
+    error IUniswapV3TokenizedLp_SetBaseTicksViaRebalanceFirst();
 
     uint256 public constant PRECISION = 10 ** 18;
     uint256 public constant FULL_PERCENT = 10000;
@@ -139,6 +165,12 @@ contract UniV3TokenizedLpExtOracle is
         emit UsdOracleReferences(msg.sender, usdOracle0Ref_, usdOracle1Ref_);
     }
 
+    /**
+     * @notice Sets the baseBpsRangeLower and baseBpsRangeUpper values
+     * @param baseBpsRangeLower_ lower bound percent below the target price
+     * @param baseBpsRangeUpper_ upper bound percent above the target price
+     * @dev baseBpsRangeLower_ and baseBpsRangeUpper_ should be in the range [1, 10000]
+     */
     function setBaseBpsRanges(uint256 baseBpsRangeLower_, uint256 baseBpsRangeUpper_) external onlyOwner {
         if (
             baseBpsRangeLower_ > FULL_PERCENT || baseBpsRangeUpper_ > FULL_PERCENT || baseBpsRangeLower_ == 0
@@ -148,6 +180,7 @@ contract UniV3TokenizedLpExtOracle is
         }
         baseBpsRangeLower = baseBpsRangeLower_;
         baseBpsRangeUpper = baseBpsRangeUpper_;
+        emit BaseBpsRanges(msg.sender, baseBpsRangeLower_, baseBpsRangeUpper_);
     }
 
     /**
@@ -355,9 +388,12 @@ contract UniV3TokenizedLpExtOracle is
     }
 
     /**
-     * TODO WIP
+     * @notice Rebalances the lp position around the target external oracle price.
+     * If the difference between the spot price and the external oracle price is larger than `hysteresis`, the base position is updated
+     * to be `baseBpsRangeLower` percent and `baseBpsRangeUpper` percent around the external oracle price.
      */
     function autoRebalance() public nonReentrant {
+        if (baseLower == 0 && baseUpper == 0) revert IUniswapV3TokenizedLp_SetBaseTicksViaRebalanceFirst();
         // update fees
         (uint128 baseLiquidity,,) = _position(baseLower, baseUpper);
         if (baseLiquidity > 0) {
