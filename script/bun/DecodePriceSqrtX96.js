@@ -17,7 +17,12 @@ if (arg1_priceSqrtX96 && arg2_decimals0 && arg3_decimals1) {
   const decimalPrice = rawPrice.multipliedBy(
     new bn(10).pow(arg2_decimals0 - arg3_decimals1)
   );
-  console.log(Number(decimalPrice.toString()).toFixed(18));
+  console.log(
+    Number(decimalPrice.toString()).toFixed(18),
+    "token1/token0\n",
+    Number(decimalPrice.pow(-1).toString()).toFixed(18),
+    "token0/token1"
+  );
 }
 
 module.exports = decodePriceSqrtX96;
