@@ -45,8 +45,8 @@ contract UniswapV3TokenizedLp is
     address public override affiliate;
     int24 public override baseLower;
     int24 public override baseUpper;
-    int24 public override limitLower;
-    int24 public override limitUpper;
+    int24 public limitLower;
+    int24 public limitUpper;
 
     uint256 public override deposit0Max;
     uint256 public override deposit1Max;
@@ -231,7 +231,6 @@ contract UniswapV3TokenizedLp is
      */
     function rebalance(int24 _baseLower, int24 _baseUpper, int24 _limitLower, int24 _limitUpper, int256 swapQuantity)
         external
-        override
         nonReentrant
         onlyOwner
     {
@@ -565,15 +564,6 @@ contract UniswapV3TokenizedLp is
     }
 
     /**
-     * @notice uint128Safe function
-     *  @param x input value
-     */
-    function _uint128Safe(uint256 x) internal pure returns (uint128) {
-        if (x > type(uint128).max) revert IUniswapV3TokenizedLp_UnsafeCast();
-        return uint128(x);
-    }
-
-    /**
      * @notice Calculates total quantity of token0 and token1 in both positions (and unused in the UniswapV3TokenizedLp)
      *  @param total0 Quantity of token0 in both positions (and unused in the UniswapV3TokenizedLp)
      *  @param total1 Quantity of token1 in both positions (and unused in the UniswapV3TokenizedLp)
@@ -636,7 +626,7 @@ contract UniswapV3TokenizedLp is
         pure
         returns (uint256 amountOut)
     {
-        return UniswapV3MathHelper.getQuoteAtTick(_tick, UniswapV3MathHelper.toUint128(_amountIn), _tokenIn, _tokenOut);
+        return UniswapV3MathHelper.getQuoteAtTick(_tick, _uint128Safe(_amountIn), _tokenIn, _tokenOut);
     }
 
     /**
@@ -657,9 +647,18 @@ contract UniswapV3TokenizedLp is
         int256 twapTick = UniswapV3MathHelper.consult(_pool, _twapPeriod);
         return UniswapV3MathHelper.getQuoteAtTick(
             int24(twapTick), // can assume safe being result from consult()
-            UniswapV3MathHelper.toUint128(_amountIn),
+            _uint128Safe(_amountIn),
             _tokenIn,
             _tokenOut
         );
+    }
+
+    /**
+     * @notice uint128Safe function
+     *  @param x input value
+     */
+    function _uint128Safe(uint256 x) internal pure returns (uint128) {
+        if (x > type(uint128).max) revert IUniswapV3TokenizedLp_UnsafeCast();
+        return uint128(x);
     }
 }

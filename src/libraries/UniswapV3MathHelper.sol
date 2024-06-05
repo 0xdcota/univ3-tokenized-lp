@@ -20,6 +20,10 @@ library UniswapV3MathHelper {
         sqrtPriceX96 = TickMath.getSqrtRatioAtTick(currentTick);
     }
 
+    function getTickAtSqrtRatio(uint160 sqrtPriceX96) public pure returns (int24 currentTick) {
+        currentTick = TickMath.getTickAtSqrtRatio(sqrtPriceX96);
+    }
+
     /**
      *
      * LiquidityAmounts
@@ -61,18 +65,5 @@ library UniswapV3MathHelper {
         returns (uint256 quoteAmount)
     {
         quoteAmount = OracleLibrary.getQuoteAtTick(tick, baseAmount, baseToken, quoteToken);
-    }
-
-    /**
-     *
-     * SafeUnit128
-     *
-     */
-
-    /// @notice Cast a uint256 to a uint128, revert on overflow
-    /// @param y The uint256 to be downcasted
-    /// @return z The downcasted integer, now type uint128
-    function toUint128(uint256 y) public pure returns (uint128 z) {
-        require((z = uint128(y)) == y, "SafeUint128: overflow");
     }
 }
