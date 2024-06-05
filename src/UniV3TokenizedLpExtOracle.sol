@@ -379,7 +379,7 @@ contract UniV3TokenizedLpExtOracle is
         uint256 price = fetchSpot(token0, token1, currentTick(), PRECISION);
         uint256 oraclePrice = fetchOracle(token0, token1, PRECISION);
 
-        // if difference between spot and oraclePrice is too big, check if the price may have been manipulated in this block
+        // Check difference between spot and oraclePrice is too big
         uint256 delta = (price > oraclePrice)
             ? ((price - oraclePrice) * PRECISION) / oraclePrice
             : ((oraclePrice - price) * PRECISION) / oraclePrice;
@@ -388,10 +388,30 @@ contract UniV3TokenizedLpExtOracle is
             baseLower = UniswapV3MathHelper.getTickAtSqrtRatio(
                 _encodePriceSqrtX96(PRECISION, ((oraclePrice * (FULL_PERCENT - baseBpsRangeLower)) / FULL_PERCENT))
             );
+            baseLower = baseLower - (baseLower % tickSpacing);
+
             baseUpper = UniswapV3MathHelper.getTickAtSqrtRatio(
                 _encodePriceSqrtX96(PRECISION, ((oraclePrice * (FULL_PERCENT + baseBpsRangeUpper)) / FULL_PERCENT))
             );
-            uint128 liquidity = _liquidityForAmounts(baseLower, baseUpper, token0Bal, token1Bal);
+            baseUpper = baseUpper - (baseUpper % tickSpacing);
+
+            // swap tokens if required
+            uint160 sqrtPriceCurrentX96 = currentSqrtPriceX96();
+            uint160 sqrtPriceTargetX96 = _encodePriceSqrtX96(PRECISION, oraclePrice);
+            if (sqrtPriceCurrentX96 != sqrtPriceTargetX96) {
+                bool zeroToOne = sqrtPriceCurrentX96 > sqrtPriceTargetX96;
+                IUniswapV3Pool(pool).swap(
+                    address(this),
+                    sqrtPriceCurrentX96 > sqrtPriceTargetX96,
+                    zeroToOne ? int256(token0Bal) : int256(token1Bal),
+                    sqrtPriceTargetX96,
+                    abi.encode(address(this))
+                );
+            }
+
+            uint128 liquidity = _liquidityForAmounts(
+                baseLower, baseUpper, IERC20(token0).balanceOf(address(this)), IERC20(token1).balanceOf(address(this))
+            );
             _mintLiquidity(baseLower, baseUpper, liquidity);
         } else {
             baseLiquidity = _liquidityForAmounts(baseLower, baseUpper, token0Bal, token1Bal);
@@ -697,6 +717,12 @@ contract UniV3TokenizedLpExtOracle is
         (, int24 tick_,,,,, bool unlocked_) = IUniswapV3Pool(pool).slot0();
         if (!unlocked_) revert IUniswapV3TokenizedLp_PoolLocked();
         tick = tick_;
+    }
+
+    function currentSqrtPriceX96() public view returns (uint160 sqrtPriceX96) {
+        (uint160 sqrtPriceX96_,,,,,, bool unlocked_) = IUniswapV3Pool(pool).slot0();
+        if (!unlocked_) revert IUniswapV3TokenizedLp_PoolLocked();
+        sqrtPriceX96 = sqrtPriceX96_;
     }
 
     /**

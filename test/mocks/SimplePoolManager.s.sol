@@ -4,6 +4,7 @@ pragma solidity ^0.8.0;
 import {IUniswapV3Pool, IUniswapV3PoolActions} from "@uniswap-v3-core/interfaces/IUniswapV3Pool.sol";
 import {TickMath} from "@uniswap-v3-core/libraries/TickMath.sol";
 import {LiquidityAmounts} from "@uniswap-v3-periphery/libraries/LiquidityAmounts.sol";
+import {SwapMath} from "@uniswap-v3-core/libraries/SwapMath.sol";
 import {Math} from "@openzeppelin/utils/math/Math.sol";
 import {IERC20} from "@openzeppelin/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
@@ -12,6 +13,8 @@ import {ReentrancyGuard} from "@openzeppelin/utils/ReentrancyGuard.sol";
 contract SimplePoolManager is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
+    event AddedPositionKey(address owner, address pool, int24 tickLower, int24 tickUpper, bytes32 positionKey);
+    event RemovedPositionKey(address owner, address pool, int24 tickLower, int24 tickUpper, bytes32 positionKey);
     event SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes data);
     event MintCallback(uint256 amount0, uint256 amount1, bytes data);
 
@@ -20,12 +23,14 @@ contract SimplePoolManager is ReentrancyGuard {
     /// @dev The maximum value that can be returned from #getSqrtRatioAtTick. Equivalent to getSqrtRatioAtTick(MAX_TICK)
     uint160 internal constant MAX_SQRT_RATIO = 1461446703485210103287273052203988822378723970342;
 
+    mapping(address => mapping(address => bytes32[])) private _userPositionKeys;
+
     address private _cachedPool;
     address private _cachedToken0;
     address private _cachedToken1;
     address private _cachedMsgSender;
 
-    function swap(IUniswapV3Pool pool, int256 swapAmount) public nonReentrant {
+    function unprotectedSwap(IUniswapV3Pool pool, int256 swapAmount) public nonReentrant {
         _cachedMsgSender = msg.sender;
         _cachedPool = address(pool);
         _cachedToken0 = pool.token0();
@@ -52,6 +57,7 @@ contract SimplePoolManager is ReentrancyGuard {
         uint128 liquidity = _liquidityForAmounts(pool, tickLower, tickUpper, token0, token1);
         if (liquidity > 0) {
             (amount0, amount1) = pool.mint(address(this), tickLower, tickUpper, liquidity, abi.encode(msg.sender));
+            _addPositionKey(address(pool), msg.sender, tickLower, tickUpper);
         } else {
             revert("Invalid liquidity == 0");
         }
@@ -62,7 +68,7 @@ contract SimplePoolManager is ReentrancyGuard {
         nonReentrant
         returns (uint256 amount0, uint256 amount1)
     {
-        (uint128 liquidity,,) = position(pool, tickLower, tickUpper, owner);
+        (uint128 liquidity,,) = position(pool, owner, tickLower, tickUpper);
 
         if (liquidity > 0) {
             // Burn liquidity
@@ -74,15 +80,26 @@ contract SimplePoolManager is ReentrancyGuard {
             if (collect0 > 0 || collect1 > 0) {
                 (amount0, amount1) = IUniswapV3Pool(pool).collect(owner, tickLower, tickUpper, collect0, collect1);
             }
+
+            // Remove position key
+            _removePositionKey(address(pool), owner, tickLower, tickUpper);
         }
     }
 
-    function position(IUniswapV3Pool pool, int24 tickLower, int24 tickUpper, address owner)
+    function position(IUniswapV3Pool pool, address owner, int24 tickLower, int24 tickUpper)
         public
         view
         returns (uint128 liquidity, uint128 tokensOwed0, uint128 tokensOwed1)
     {
         bytes32 positionKey = keccak256(abi.encodePacked(owner, tickLower, tickUpper));
+        (liquidity,,, tokensOwed0, tokensOwed1) = pool.positions(positionKey);
+    }
+
+    function positionByKey(IUniswapV3Pool pool, bytes32 positionKey)
+        public
+        view
+        returns (uint128 liquidity, uint128 tokensOwed0, uint128 tokensOwed1)
+    {
         (liquidity,,, tokensOwed0, tokensOwed1) = pool.positions(positionKey);
     }
 
@@ -151,7 +168,7 @@ contract SimplePoolManager is ReentrancyGuard {
         returns (uint256 reserve0, uint256 reserve1)
     {
         reserve0 = reserve0Unit;
-        reserve1 = ((sqrtPriceX96 ** 2) / 2 ** 192) * reserve0;
+        reserve1 = ((sqrtPriceX96 / 2 ** 96) ** 2) * reserve0;
     }
 
     /// @notice Called to `msg.sender` after minting liquidity to a position from IUniswapV3Pool#mint.
@@ -201,12 +218,8 @@ contract SimplePoolManager is ReentrancyGuard {
         address payer = abi.decode(data, (address));
 
         if (payer == _cachedMsgSender) {
-            if (amount0 > 0) {
-                IERC20(_cachedToken0).safeTransferFrom(payer, msg.sender, amount0);
-            }
-            if (amount1 > 0) {
-                IERC20(_cachedToken1).safeTransferFrom(payer, msg.sender, amount1);
-            }
+            if (amount0 > 0) IERC20(_cachedToken0).safeTransferFrom(payer, msg.sender, amount0);
+            if (amount1 > 0) IERC20(_cachedToken1).safeTransferFrom(payer, msg.sender, amount1);
         } else {
             if (amount0 > 0) IERC20(_cachedToken0).safeTransfer(msg.sender, amount0);
             if (amount1 > 0) IERC20(_cachedToken1).safeTransfer(msg.sender, amount1);
@@ -237,6 +250,29 @@ contract SimplePoolManager is ReentrancyGuard {
         return getLiquidityForAmounts(
             sqrtRatioX96, getSqrtRatioAtTick(tickLower), getSqrtRatioAtTick(tickUpper), amount0, amount1
         );
+    }
+
+    function _getPositionKey(address owner, int24 tickLower, int24 tickUpper) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(owner, tickLower, tickUpper));
+    }
+
+    function _addPositionKey(address pool, address owner, int24 tickLower, int24 tickUpper) internal {
+        bytes32 key = _getPositionKey(owner, tickLower, tickUpper);
+        _userPositionKeys[owner][pool].push(key);
+        emit AddedPositionKey(owner, pool, tickLower, tickUpper, key);
+    }
+
+    function _removePositionKey(address pool, address owner, int24 tickLower, int24 tickUpper) internal {
+        bytes32 positionKey = _getPositionKey(owner, tickLower, tickUpper);
+        bytes32[] storage keys = _userPositionKeys[owner][pool];
+        for (uint256 i = 0; i < keys.length; i++) {
+            if (keys[i] == positionKey) {
+                keys[i] = keys[keys.length - 1];
+                keys.pop();
+                break;
+            }
+        }
+        emit RemovedPositionKey(owner, pool, tickLower, tickUpper, positionKey);
     }
 
     function _uint128Safe(uint256 x) internal pure returns (uint128) {
