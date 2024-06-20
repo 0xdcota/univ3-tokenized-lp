@@ -1,6 +1,6 @@
 [profile.default]
 solc = "0.8.20"
-optimizer_runs = 100000
+optimizer_runs = 1_000_000
 src = "src"
 out = "out"
 libs = ["lib"]
