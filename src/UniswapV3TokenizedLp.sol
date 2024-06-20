@@ -38,7 +38,7 @@ import {ReentrancyGuard} from "@openzeppelin/utils/ReentrancyGuard.sol";
 import {Ownable} from "@openzeppelin/access/Ownable.sol";
 import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
 
-contract UniwapV3TokenizedLp is
+contract UniswapV3TokenizedLp is
     IUniswapV3TokenizedLp,
     IUniswapV3MintCallback,
     IUniswapV3SwapCallback,
