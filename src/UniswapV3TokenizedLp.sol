@@ -472,7 +472,7 @@ contract UniswapV3TokenizedLp is
      * The call swaps either side of the AUM tokens as required to match the target price.
      * If no price mismatch fees are collected and collected fees are distributed.
      */
-    function autoRebalance() public nonReentrant {
+    function autoRebalance() public nonReentrant returns (bool executed) {
         if (baseLower == 0 && baseUpper == 0) revert IUniswapV3TokenizedLp_SetBaseTicksViaRebalanceFirst();
 
         (uint256 token0Bal, uint256 token1Bal) = _updateAndCollectPositionFees();
@@ -528,6 +528,7 @@ contract UniswapV3TokenizedLp is
             );
             // Set the CL position at the new baseLower and baseUpper ticks
             _mintLiquidity(baseLower, baseUpper, liquidity);
+            executed = true;
         } else {
             // Since price difference was less than `hysteresis`, set the CL position back at
             // the previous baseLower and baseUpper ticks

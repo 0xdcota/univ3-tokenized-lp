@@ -134,7 +134,7 @@ interface IUniswapV3TokenizedLp {
 
     function withdraw(uint256 shares, address receiver) external returns (uint256, uint256);
 
-    function autoRebalance() external;
+    function autoRebalance() external returns (bool executed);
 
     function rebalance(int24 baseLower, int24 baseUpper, int256 swapQuantity) external;
 }
