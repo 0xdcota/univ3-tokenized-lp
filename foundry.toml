@@ -5,4 +5,9 @@ src = "src"
 out = "out"
 libs = ["lib"]
 
+[profile.base]
+libraries = [
+    "src/libraries/UniV3MathHelper.sol:UniV3MathHelper:0x09b367fd66dF8DA090FB671F989E8d29921E6337"
+]
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
