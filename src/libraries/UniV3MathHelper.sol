@@ -4,12 +4,15 @@ pragma solidity ^0.8.0;
 import {TickMath} from "@uniswap-v3-core/libraries/TickMath.sol";
 import {LiquidityAmounts} from "@uniswap-v3-periphery/libraries/LiquidityAmounts.sol";
 import {OracleLibrary} from "@uniswap-v3-periphery/libraries/OracleLibrary.sol";
+import {Math} from "@openzeppelin/utils/math/Math.sol";
 
-library UniswapV3MathHelper {
+library UniV3MathHelper {
     /// @dev The minimum value that can be returned from #getSqrtRatioAtTick. Equivalent to getSqrtRatioAtTick(MIN_TICK)
-    uint160 internal constant MIN_SQRT_RATIO = 4295128739;
+    uint160 public constant MIN_SQRT_RATIO = 4295128739;
     /// @dev The maximum value that can be returned from #getSqrtRatioAtTick. Equivalent to getSqrtRatioAtTick(MAX_TICK)
-    uint160 internal constant MAX_SQRT_RATIO = 1461446703485210103287273052203988822378723970342;
+    uint160 public constant MAX_SQRT_RATIO = 1461446703485210103287273052203988822378723970342;
+
+    error UnsafeCast();
 
     /**
      *
@@ -65,5 +68,51 @@ library UniswapV3MathHelper {
         returns (uint256 quoteAmount)
     {
         quoteAmount = OracleLibrary.getQuoteAtTick(tick, baseAmount, baseToken, quoteToken);
+    }
+
+    /**
+     *
+     * General
+     *
+     */
+
+    /**
+     * @dev Encodes two reserve amounts into approx ~sqrtPriceX96.
+     * Precision cannot be matched with the actual sqrtPriceX96 obtained in JS with BigNumbers.
+     * Higher precision could also lead to overflow.
+     */
+    function encodePriceSqrtX96(uint256 reserve0, uint256 reserve1) public pure returns (uint160) {
+        uint160 precisionHelper = 1;
+        if (reserve1 < reserve0) {
+            precisionHelper = 1 ether;
+            reserve1 = reserve1 * precisionHelper ** 2;
+        }
+        return uint160Safe((Math.sqrt(reserve1 / reserve0)) * 2 ** 96) / precisionHelper;
+    }
+
+    /**
+     * @dev Rounds a tick to the nearest multiple of the tickSpacing by always
+     * reducing range (i.e. moving towards zero).
+     */
+    function roundTick(int24 tick, int24 tickSpacing) public pure returns (int24) {
+        return tick < 0 ? tick + (-tick % tickSpacing) : tick - (tick % tickSpacing);
+    }
+
+    /**
+     * @notice Unit256 to uint128 safe function
+     *  @param x input value
+     */
+    function uint128Safe(uint256 x) public pure returns (uint128) {
+        if (x > type(uint128).max) revert UnsafeCast();
+        return uint128(x);
+    }
+
+    /**
+     * @notice Unit256 to uint160 safe function
+     *  @param x input value
+     */
+    function uint160Safe(uint256 x) public pure returns (uint160) {
+        if (x > type(uint160).max) revert UnsafeCast();
+        return uint160(x);
     }
 }

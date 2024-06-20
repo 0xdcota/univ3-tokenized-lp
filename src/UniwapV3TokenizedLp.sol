@@ -27,11 +27,10 @@ pragma solidity ^0.8.0;
 // ▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▌
 
 import {IUniswapV3TokenizedLp} from "./interfaces/IUniswapV3TokenizedLp.sol";
-import {IUniswapV3TokenizedLpFactory} from "./interfaces/IUniswapV3TokenizedLpFactory.sol";
 import {IUniswapV3MintCallback} from "@uniswap-v3-core/interfaces/callback/IUniswapV3MintCallback.sol";
 import {IUniswapV3SwapCallback} from "@uniswap-v3-core/interfaces/callback/IUniswapV3SwapCallback.sol";
 import {IUniswapV3Pool, IUniswapV3PoolActions} from "@uniswap-v3-core/interfaces/IUniswapV3Pool.sol";
-import {UniswapV3MathHelper} from "./libraries/UniswapV3MathHelper.sol";
+import {UniV3MathHelper} from "./libraries/UniV3MathHelper.sol";
 import {ERC20, IERC20Metadata} from "@openzeppelin/token/ERC20/ERC20.sol";
 import {SafeERC20, IERC20} from "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
 import {Math} from "@openzeppelin/utils/math/Math.sol";
@@ -39,7 +38,7 @@ import {ReentrancyGuard} from "@openzeppelin/utils/ReentrancyGuard.sol";
 import {Ownable} from "@openzeppelin/access/Ownable.sol";
 import {IPriceFeed} from "./interfaces/IPriceFeed.sol";
 
-contract UniV3TokenizedLpExtOracle is
+contract UniwapV3TokenizedLp is
     IUniswapV3TokenizedLp,
     IUniswapV3MintCallback,
     IUniswapV3SwapCallback,
@@ -49,55 +48,33 @@ contract UniV3TokenizedLpExtOracle is
 {
     using SafeERC20 for IERC20;
 
-    event DeployUniV3TokenizedLp(
-        address indexed sender,
-        address indexed pool,
-        bool allowToken0,
-        bool allowToken1,
-        address owner,
-        address usdOracle0Ref,
-        address usdOracle1Ref
-    );
-    event FeeRecipient(address indexed sender, address feeRecipient);
-    event BaseFee(address indexed sender, uint256 baseFee);
-    event BaseFeeSplit(address indexed sender, uint256 baseFeeSplit);
-    event UsdOracleReferences(address indexed sender, address usd0RefOracle, address usd1RefOracle);
-    event BaseBpsRanges(address indexed sender, uint256 baseBpsRangeLower, uint256 baseBpsRangeUpper);
-
-    error IUniswapV3TokenizedLp_InvalidBaseBpsRange();
-    error IUniswapV3TokenizedLp_SetBaseTicksViaRebalanceFirst();
-
     uint256 public constant PRECISION = 10 ** 18;
     uint256 public constant FULL_PERCENT = 10000;
     address public constant NULL_ADDRESS = address(0);
     uint256 public constant DEFAULT_BASE_FEE = 10 ** 17; // 10%
     uint256 public constant DEFAULT_BASE_FEE_SPLIT = 5 * 10 ** 17; // 50%
 
-    string private _name;
-    string private _symbol;
+    uint8 private _initialized;
 
-    address public immutable override pool;
-    address public immutable override token0;
-    address public immutable override token1;
-    bool public immutable override allowToken0;
-    bool public immutable override allowToken1;
-    uint24 public immutable override fee;
-    int24 public immutable override tickSpacing;
-
+    bool public override allowToken0;
+    bool public override allowToken1;
+    int24 public override tickSpacing;
     int24 public override baseLower;
     int24 public override baseUpper;
 
+    address public override pool;
+    address public override token0;
+    address public override token1;
+    IPriceFeed public usdOracle0Ref;
+    IPriceFeed public usdOracle1Ref;
+
     uint256 public baseBpsRangeLower;
     uint256 public baseBpsRangeUpper;
+    uint256 public override hysteresis;
 
     uint256 public override deposit0Max;
     uint256 public override deposit1Max;
     uint256 public override maxTotalSupply;
-    uint256 public override hysteresis;
-
-    uint32 public twapPeriod;
-    IPriceFeed public usdOracle0Ref;
-    IPriceFeed public usdOracle1Ref;
 
     uint256 public baseFee;
     uint256 public baseFeeSplit;
@@ -105,19 +82,22 @@ contract UniV3TokenizedLpExtOracle is
     address public feeRecipient;
     address public override affiliate;
 
+    string private _name;
+    string private _symbol;
+
     /**
-     * @notice creates an instance of UniswapV3TokenizedLp based on the pool. `allowTokenX` params control whether the UniswapV3TokenizedLp allows one-sided or two-sided liquidity provision
+     * @notice Initializes this instance of {UniV3TokenizedLp} based on the `_pool`.
      * @param _pool Uniswap V3 pool for which liquidity is managed
      * @param _allowToken0 flag that indicates whether token0 is accepted during deposit
      * @param _allowToken1 flag that indicates whether token1 is accepted during deposit
-     * @param _usdOracle0Ref address of token0 USD oracle
-     * @param _usdOracle1Ref address of token1 USD oracle
+     * @param _usdOracle0Ref address of token0 USD oracle (8 decimals)
+     * @param _usdOracle1Ref address of token1 USD oracle (8 decimals)
+     * @dev `allowTokenX` params control whether this {UniV3TokenizedLp} allows one-sided or two-sided liquidity provision
      */
     constructor(address _pool, bool _allowToken0, bool _allowToken1, address _usdOracle0Ref, address _usdOracle1Ref)
         ERC20("", "")
         Ownable(msg.sender)
     {
-        if (_pool == NULL_ADDRESS) revert IUniswapV3TokenizedLp_ZeroAddress();
         if (!_allowToken0 && !_allowToken1) {
             revert IUniswapV3TokenizedLp_NoAllowedTokens();
         }
@@ -127,29 +107,29 @@ contract UniV3TokenizedLpExtOracle is
         token1 = IUniswapV3Pool(_pool).token1();
         string memory token0Symbol = ERC20(token0).symbol();
         string memory token1Symbol = ERC20(token1).symbol();
-        _name = string(abi.encodePacked("UniV3 Lp Token: ", token0Symbol, "-", token1Symbol));
-        _symbol = string(abi.encodePacked("uV3Lp-", token0Symbol, "-", token1Symbol));
+        _name = string(abi.encodePacked("Shares of UnivswapV3 CL Position: ", token0Symbol, "-", token1Symbol));
+        _symbol = string(abi.encodePacked("shLp-", token0Symbol, "-", token1Symbol));
 
-        fee = IUniswapV3Pool(_pool).fee();
         allowToken0 = _allowToken0;
         allowToken1 = _allowToken1;
         tickSpacing = IUniswapV3Pool(_pool).tickSpacing();
-
-        maxTotalSupply = 0; // no cap
-        hysteresis = (100 * PRECISION) / FULL_PERCENT; // default 1% threshold
-        baseBpsRangeLower = baseBpsRangeUpper = 1250; // default 12.5% range around the current price for base position
-        deposit0Max = type(uint256).max; // max uint256
-        deposit1Max = type(uint256).max; // max uint256
+        // default 1% threshold
+        hysteresis = (100 * PRECISION) / FULL_PERCENT;
+        // default 12.5% range around the current price for base position
+        baseBpsRangeLower = baseBpsRangeUpper = 1250;
+        deposit0Max = deposit1Max = type(uint256).max; // max uint256
         feeRecipient = msg.sender;
-        affiliate = NULL_ADDRESS; // by default there is no affiliate address
         baseFee = DEFAULT_BASE_FEE;
         baseFeeSplit = DEFAULT_BASE_FEE_SPLIT;
         usdOracle0Ref = IPriceFeed(_usdOracle0Ref);
         usdOracle1Ref = IPriceFeed(_usdOracle1Ref);
+
         emit DeployUniV3TokenizedLp(
             msg.sender, _pool, _allowToken0, _allowToken1, msg.sender, _usdOracle0Ref, _usdOracle1Ref
         );
     }
+
+    /// Setter Functions
 
     /**
      * @notice Sets the usdOracle0Ref and usdOracle1Ref addresses
@@ -185,7 +165,6 @@ contract UniV3TokenizedLpExtOracle is
 
     /**
      * @notice Sets the fee recipient account address, where portion of the collected swap fees will be distributed
-     * @dev onlyOwner
      * @param _feeRecipient The fee recipient account address
      */
     function setFeeRecipient(address _feeRecipient) external onlyOwner {
@@ -197,8 +176,8 @@ contract UniV3TokenizedLpExtOracle is
     }
 
     /**
-     * @notice Sets the fee percentage to be taken from the accumulated pool's swap fees. This percentage is then distributed between the feeRecipient and affiliate accounts
-     * @dev onlyOwner
+     * @notice Sets the fee percentage to be taken from the accumulated pool's swap fees.
+     * This percentage is distributed between the feeRecipient and affiliate accounts
      * @param _baseFee The fee percentage to be taken from the accumulated pool's swap fee
      */
     function setBaseFee(uint256 _baseFee) external onlyOwner {
@@ -210,9 +189,12 @@ contract UniV3TokenizedLpExtOracle is
     }
 
     /**
-     * @notice Sets the fee split ratio between feeRecipient and affiliate accounts. The ratio is set as (baseFeeSplit)/(100 - baseFeeSplit), that is if we want 20/80 ratio (with feeRecipient getting 20%), baseFeeSplit should be set to 20
-     * @dev onlyOwner
-     * @param _baseFeeSplit The fee split ratio between feeRecipient and affiliate accounts
+     * @notice Sets the fee split ratio between feeRecipient and affiliate accounts.
+     * @param _baseFeeSplit The fee split ratio for feeRecipient
+     * @dev _baseFeeSplit should be less than PRECISION (100%)
+     * Example
+     * If `feeRecipient` should receive 80% of the collected swap fees,
+     * then `_baseFeeSplit` should be 8e17 (80% of 1e18)
      */
     function setBaseFeeSplit(uint256 _baseFeeSplit) external onlyOwner {
         if (_baseFeeSplit > PRECISION) {
@@ -223,45 +205,50 @@ contract UniV3TokenizedLpExtOracle is
     }
 
     /**
-     * @notice Sets the maximum liquidity token supply the contract allows
-     * @dev onlyOwner
-     * @param _maxTotalSupply The maximum liquidity token supply the contract allows
-     */
-    function setMaxTotalSupply(uint256 _maxTotalSupply) external onlyOwner {
-        maxTotalSupply = _maxTotalSupply;
-        emit MaxTotalSupply(msg.sender, _maxTotalSupply);
-    }
-
-    /**
-     * @notice Sets the hysteresis threshold (in percentage points, 10**16 = 1%). When difference between spot price and TWAP exceeds the threshold, a check for a flashloan attack is executed
-     * @dev onlyOwner
+     * @notice Sets the hysteresis threshold (in percentage from 1 ether unit, example: 10**16 = 1%).
+     * When difference between spot price and external Oracle exceeds the threshold, a check for a flashloan attack is executed during deposits
+     * and triggers autoRebalance position change.
      * @param _hysteresis hysteresis threshold
+     * @dev _hysteresis should be less than PRECISION (100%)
      */
     function setHysteresis(uint256 _hysteresis) external onlyOwner {
+        if (_hysteresis >= PRECISION) {
+            revert IUniswapV3TokenizedLp_FeeMustBeLtePrecision();
+        }
         hysteresis = _hysteresis;
         emit Hysteresis(msg.sender, _hysteresis);
     }
 
     /**
      * @notice Sets the affiliate account address where portion of the collected swap fees will be distributed
-     * @dev onlyOwner
      * @param _affiliate The affiliate account address
+     * @dev If `affiliate` is set to the zero address, 100% of the baseFee will go to the `feeRecipient`
      */
     function setAffiliate(address _affiliate) external override onlyOwner {
         affiliate = _affiliate;
         emit Affiliate(msg.sender, _affiliate);
     }
 
+    /// View functions
+
     /**
-     * @notice Sets the maximum token0 and token1 amounts the contract allows in a deposit
-     * @dev onlyOwner
+     * @notice Sets the maximum token0 and token1 amounts the contract allows in a deposit call.
      * @param _deposit0Max The maximum amount of token0 allowed in a deposit
      * @param _deposit1Max The maximum amount of token1 allowed in a deposit
+     * @dev Use this to control incoming size and ratios of token0 and token1
      */
     function setDepositMax(uint256 _deposit0Max, uint256 _deposit1Max) external override onlyOwner {
         deposit0Max = _deposit0Max;
         deposit1Max = _deposit1Max;
         emit DepositMax(msg.sender, _deposit0Max, _deposit1Max);
+    }
+
+    /**
+     * @notice Sets the maximum total supply of the UniswapV3TokenizedLp token
+     */
+    function setMaxTotalSupply(uint256 _maxTotalSupply) external onlyOwner {
+        maxTotalSupply = _maxTotalSupply;
+        emit MaxTotalSupply(msg.sender, _maxTotalSupply);
     }
 
     /**
@@ -279,9 +266,93 @@ contract UniV3TokenizedLpExtOracle is
     }
 
     /**
-     * @notice Distributes shares to depositor equal to the token1 value of his deposit multiplied by the ratio of total lp shares issued divided by the pool's AUM measured in token1 value.
-     * @param deposit0 Amount of token0 transferred from sender to UniswapV3TokenizedLp
-     * @param deposit1 Amount of token1 transferred from sender to UniswapV3TokenizedLp
+     * @notice Calculates total quantity of token0 and token1 (AUM) of this UniV3TokenizedLp
+     *  @param total0 Quantity of token0 in both positions (and unused)
+     *  @param total1 Quantity of token1 in both positions (and unused)
+     */
+    function getTotalAmounts() public view override returns (uint256 total0, uint256 total1) {
+        (, uint256 base0, uint256 base1) = getBasePosition();
+        total0 = IERC20(token0).balanceOf(address(this)) + base0;
+        total1 = IERC20(token1).balanceOf(address(this)) + base1;
+    }
+
+    /**
+     * @notice Calculates amount of total liquidity in the base position
+     *  @return liquidity Amount of total "virtual" liquidity in the base position
+     *  @return amount0 Estimated amount of token0 that could be collected by burning the base position
+     *  @return amount1 Estimated amount of token1 that could be collected by burning the base position
+     */
+    function getBasePosition() public view returns (uint128 liquidity, uint256 amount0, uint256 amount1) {
+        (uint128 positionLiquidity, uint128 tokensOwed0, uint128 tokensOwed1) = _position(baseLower, baseUpper);
+        (amount0, amount1) = _amountsForLiquidity(baseLower, baseUpper, positionLiquidity);
+        liquidity = positionLiquidity;
+        amount0 = amount0 + uint256(tokensOwed0);
+        amount1 = amount1 + uint256(tokensOwed1);
+    }
+
+    /**
+     * @notice Returns current price tick
+     *  @param tick Uniswap pool's current price tick
+     */
+    function currentTick() public view returns (int24 tick) {
+        (, int24 tick_,,,,, bool unlocked_) = IUniswapV3Pool(pool).slot0();
+        if (!unlocked_) revert IUniswapV3TokenizedLp_PoolLocked();
+        tick = tick_;
+    }
+
+    /**
+     * @notice Returns current sqrtPriceX96 at the pool
+     */
+    function currentSqrtPriceX96() public view returns (uint160 sqrtPriceX96) {
+        (uint160 sqrtPriceX96_,,,,,, bool unlocked_) = IUniswapV3Pool(pool).slot0();
+        if (!unlocked_) revert IUniswapV3TokenizedLp_PoolLocked();
+        sqrtPriceX96 = sqrtPriceX96_;
+    }
+
+    /**
+     * @notice returns equivalent _tokenOut for _amountIn, _tokenIn using spot pool price
+     *  @param _tokenIn token the input amount is in
+     *  @param _tokenOut token for the output amount
+     *  @param _amountIn amount in _tokenIn
+     *  @param amountOut equivalent amount in _tokenOut
+     */
+    function fetchSpot(address _tokenIn, address _tokenOut, uint256 _amountIn)
+        public
+        view
+        returns (uint256 amountOut)
+    {
+        return
+            UniV3MathHelper.getQuoteAtTick(currentTick(), UniV3MathHelper.uint128Safe(_amountIn), _tokenIn, _tokenOut);
+    }
+
+    /**
+     * @notice returns equivalent _tokenOut for _amountIn, _tokenIn using external oracle price
+     *  @param tokenIn_ token the input amount is in
+     *  @param tokenOut_ token for the output amount
+     *  @param amountIn_ amount in _tokenIn
+     *  @param amountOut equivalent amount in _tokenOut
+     */
+    function fetchOracle(address tokenIn_, address tokenOut_, uint256 amountIn_)
+        public
+        view
+        returns (uint256 amountOut)
+    {
+        uint256 valueIn = tokenIn_ == token0
+            ? _getUsdValue(tokenIn_, amountIn_, usdOracle0Ref)
+            : _getUsdValue(tokenIn_, amountIn_, usdOracle1Ref);
+
+        amountOut = tokenOut_ == token0
+            ? _getTokenFromUsdValue(tokenOut_, usdOracle0Ref, valueIn)
+            : _getTokenFromUsdValue(tokenOut_, usdOracle1Ref, valueIn);
+    }
+
+    /// Common functions
+
+    /**
+     * @notice Distributes shares to depositor equal to the token1 value of his deposit multiplied by
+     * the ratio of total lp shares issued divided by the pool's AUM measured in token1 value.
+     * @param deposit0 Amount of token0 transferred from sender
+     * @param deposit1 Amount of token1 transferred from sender
      * @param to Address to which lp tokens are minted
      * @param shares Quantity of lp tokens minted as a result of deposit
      */
@@ -305,31 +376,33 @@ contract UniV3TokenizedLpExtOracle is
         }
         if (to == NULL_ADDRESS) revert IUniswapV3TokenizedLp_ZeroAddress();
 
-        // update fees for inclusion in total pool amounts
+        // Updates pending fees in pool state for inclusion when calling `getTotalAmounts()`
         (uint128 baseLiquidity,,) = _position(baseLower, baseUpper);
         if (baseLiquidity > 0) {
+            // See IUniswapV3PoolActions.burn(...) interface docs, this call is used to update state of fees
             (uint256 burn0, uint256 burn1) = IUniswapV3Pool(pool).burn(baseLower, baseUpper, 0);
             if (burn0 != 0 || burn1 != 0) {
-                revert IUniswapV3TokenizedLp_UnexpectedBurn(264);
+                revert IUniswapV3TokenizedLp_UnexpectedBurn();
             }
         }
 
         // Spot price of token1/token0
-        uint256 price = fetchSpot(token0, token1, currentTick(), PRECISION);
-
-        // External Oracle price of token1/token0
+        uint256 spotPrice = fetchSpot(token0, token1, PRECISION);
+        // External oracle price of token1/token0
         uint256 oraclePrice = fetchOracle(token0, token1, PRECISION);
 
-        // If difference between spot and oracle is too big, check if the price may have been manipulated in this block
-        uint256 delta = (price > oraclePrice)
-            ? ((price - oraclePrice) * PRECISION) / price
-            : ((oraclePrice - price) * PRECISION) / oraclePrice;
+        // If difference between spot and oracle is bigger than `hysteresis`, it
+        // checks the timestamp of the last `observation` at the pool
+        // to confirm if price has been manipulated in this block
+        uint256 delta = (spotPrice > oraclePrice)
+            ? ((spotPrice - oraclePrice) * PRECISION) / spotPrice
+            : ((oraclePrice - spotPrice) * PRECISION) / oraclePrice;
         if (delta > hysteresis) require(_checkHysteresis(), "try later");
 
         (uint256 pool0, uint256 pool1) = getTotalAmounts();
 
-        // aggregated deposit
-        uint256 deposit0PricedInToken1 = (deposit0 * ((price < oraclePrice) ? price : oraclePrice)) / PRECISION;
+        // Price the `deposit0` amount in token1 at oracle price
+        uint256 deposit0PricedInToken1 = (deposit0 * oraclePrice) / PRECISION;
 
         if (deposit0 > 0) {
             IERC20(token0).safeTransferFrom(msg.sender, address(this), deposit0);
@@ -338,22 +411,25 @@ contract UniV3TokenizedLpExtOracle is
             IERC20(token1).safeTransferFrom(msg.sender, address(this), deposit1);
         }
 
+        // Shares in value of token1
         shares = deposit1 + deposit0PricedInToken1;
 
-        if (totalSupply() != 0) {
-            uint256 pool0PricedInToken1 = (pool0 * ((price > oraclePrice) ? price : oraclePrice)) / PRECISION;
-            shares = (shares * totalSupply()) / (pool0PricedInToken1 + pool1);
+        uint256 totalSupply_ = totalSupply();
+        if (totalSupply_ != 0) {
+            // Price the pool0 in token1 at oracle price
+            uint256 pool0PricedInToken1 = (pool0 * oraclePrice) / PRECISION;
+            // Compute ratio of total shares to pool AUM in token1
+            shares = (shares * totalSupply_) / (pool0PricedInToken1 + pool1);
+
+            if (shares + totalSupply_ > maxTotalSupply) revert IUniswapV3TokenizedLp_MaxTotalSupplyExceeded();
         }
         _mint(to, shares);
         emit Deposit(msg.sender, to, shares, deposit0, deposit1);
-        // Check total supply cap not exceeded. A value of 0 means no limit.
-        if (maxTotalSupply != 0 && totalSupply() > maxTotalSupply) {
-            revert IUniswapV3TokenizedLp_MaxTotalSupplyExceeded();
-        }
     }
 
     /**
-     * @notice Redeems shares by sending out a percentage of the UniswapV3TokenizedLp's AUM - this percentage is equal to the percentage of total issued shares represented by the redeemed shares.
+     * @notice Redeems shares by sending out a portion of the UniV3TokenizedLp's AUM -
+     *  this portion is equal to the percentage of total issued shares represented by the redeemed shares.
      *  @param shares Number of liquidity tokens to redeem as pool assets
      *  @param to Address to which redeemed pool assets are sent
      *  @param amount0 Amount of token0 redeemed by the submitted liquidity tokens
@@ -368,11 +444,13 @@ contract UniV3TokenizedLpExtOracle is
         if (shares == 0) revert IUniswapV3TokenizedLp_ZeroValue();
         if (to == NULL_ADDRESS) revert IUniswapV3TokenizedLp_ZeroAddress();
 
-        // Withdraw liquidity from Uniswap pool
+        // Withdraw share amount of liquidity from the Uniswap pool
+        // This call also updates fee state in the pool
         (uint256 base0, uint256 base1) =
             _burnLiquidity(baseLower, baseUpper, _liquidityForShares(baseLower, baseUpper, shares), to, false);
 
-        // Push tokens proportional to unused balances
+        // Compute proportion of unused balances in this contract relative to `shares`
+        // Note: Sending tokens directly to alter the balances of this address will result in a loss to the sender-caller.
         uint256 _totalSupply = totalSupply();
         uint256 unusedAmount0 = (IERC20(token0).balanceOf(address(this)) * (shares)) / _totalSupply;
         uint256 unusedAmount1 = (IERC20(token1).balanceOf(address(this)) * (shares)) / _totalSupply;
@@ -388,59 +466,59 @@ contract UniV3TokenizedLpExtOracle is
     }
 
     /**
-     * @notice Rebalances the lp position around the target external oracle price.
+     * @notice Rebalance the lp position around the target external oracle price.
      * If the difference between the spot price and the external oracle price is larger than `hysteresis`, the base position is updated
      * to be `baseBpsRangeLower` percent and `baseBpsRangeUpper` percent around the external oracle price.
+     * The call swaps either side of the AUM tokens as required to match the target price.
+     * If no price mismatch fees are collected and collected fees are distributed.
      */
     function autoRebalance() public nonReentrant {
         if (baseLower == 0 && baseUpper == 0) revert IUniswapV3TokenizedLp_SetBaseTicksViaRebalanceFirst();
-        // update fees
-        (uint128 baseLiquidity,,) = _position(baseLower, baseUpper);
-        if (baseLiquidity > 0) {
-            IUniswapV3Pool(pool).burn(baseLower, baseUpper, 0);
-        }
 
-        // Withdraw all liquidity and collect all fees from Uniswap pool
-        (, uint256 feesBase0, uint256 feesBase1) = _position(baseLower, baseUpper);
-
-        _burnLiquidity(baseLower, baseUpper, baseLiquidity, address(this), true);
-        _distributeFees(feesBase0, feesBase1);
-
-        uint256 token0Bal = IERC20(token0).balanceOf(address(this));
-        uint256 token1Bal = IERC20(token1).balanceOf(address(this));
-
-        emit Rebalance(currentTick(), token0Bal, token1Bal, feesBase0, feesBase1, totalSupply());
+        (uint256 token0Bal, uint256 token1Bal) = _updateAndCollectPositionFees();
 
         // Get spot and external oracle prices
-        uint256 price = fetchSpot(token0, token1, currentTick(), PRECISION);
+        uint256 spotPrice = fetchSpot(token0, token1, PRECISION);
         uint256 oraclePrice = fetchOracle(token0, token1, PRECISION);
 
-        // Check difference between spot and oraclePrice is too big
-        uint256 delta = (price > oraclePrice)
-            ? ((price - oraclePrice) * PRECISION) / oraclePrice
-            : ((oraclePrice - price) * PRECISION) / oraclePrice;
+        // Check if difference between spot and oraclePrice is too big
+        uint256 delta = (spotPrice > oraclePrice)
+            ? ((spotPrice - oraclePrice) * PRECISION) / oraclePrice
+            : ((oraclePrice - spotPrice) * PRECISION) / oraclePrice;
 
-        if (delta > hysteresis) {
-            baseLower = UniswapV3MathHelper.getTickAtSqrtRatio(
-                _encodePriceSqrtX96(PRECISION, ((oraclePrice * (FULL_PERCENT - baseBpsRangeLower)) / FULL_PERCENT))
-            );
-            baseLower = baseLower - (baseLower % tickSpacing);
+        // Calculate the new baseLower and baseUpper ticks. It is required to encode the price into sqrtPriceX96
+        int24 baseLower_ = UniV3MathHelper.roundTick(
+            UniV3MathHelper.getTickAtSqrtRatio(
+                UniV3MathHelper.encodePriceSqrtX96(
+                    PRECISION, ((oraclePrice * (FULL_PERCENT - baseBpsRangeLower)) / FULL_PERCENT)
+                )
+            ),
+            tickSpacing
+        );
+        int24 baseUpper_ = UniV3MathHelper.roundTick(
+            UniV3MathHelper.getTickAtSqrtRatio(
+                UniV3MathHelper.encodePriceSqrtX96(
+                    PRECISION, ((oraclePrice * (FULL_PERCENT + baseBpsRangeUpper)) / FULL_PERCENT)
+                )
+            ),
+            tickSpacing
+        );
 
-            baseUpper = UniswapV3MathHelper.getTickAtSqrtRatio(
-                _encodePriceSqrtX96(PRECISION, ((oraclePrice * (FULL_PERCENT + baseBpsRangeUpper)) / FULL_PERCENT))
-            );
-            baseUpper = baseUpper - (baseUpper % tickSpacing);
+        if (delta > hysteresis || baseLower != baseLower_ || baseUpper != baseUpper_) {
+            baseLower = baseLower_;
+            baseUpper = baseUpper_;
 
-            // swap tokens if required
+            // Swap tokens if required to reach the target price
             uint160 sqrtPriceCurrentX96 = currentSqrtPriceX96();
-            uint160 sqrtPriceTargetX96 = _encodePriceSqrtX96(PRECISION, oraclePrice);
+            uint160 sqrtPriceTargetX96 = UniV3MathHelper.encodePriceSqrtX96(PRECISION, oraclePrice);
             if (sqrtPriceCurrentX96 != sqrtPriceTargetX96) {
+                // Determine if it is a token0-to-token1 or opposite swap
                 bool zeroToOne = sqrtPriceCurrentX96 > sqrtPriceTargetX96;
                 IUniswapV3Pool(pool).swap(
                     address(this),
-                    sqrtPriceCurrentX96 > sqrtPriceTargetX96,
+                    zeroToOne,
                     zeroToOne ? int256(token0Bal) : int256(token1Bal),
-                    sqrtPriceTargetX96,
+                    sqrtPriceTargetX96, // Swap through ticks until the target price is reached or run out of tokens
                     abi.encode(address(this))
                 );
             }
@@ -448,16 +526,18 @@ contract UniV3TokenizedLpExtOracle is
             uint128 liquidity = _liquidityForAmounts(
                 baseLower, baseUpper, IERC20(token0).balanceOf(address(this)), IERC20(token1).balanceOf(address(this))
             );
+            // Set the CL position at the new baseLower and baseUpper ticks
             _mintLiquidity(baseLower, baseUpper, liquidity);
         } else {
-            baseLiquidity = _liquidityForAmounts(baseLower, baseUpper, token0Bal, token1Bal);
+            // Since price difference was less than `hysteresis`, set the CL position back at
+            // the previous baseLower and baseUpper ticks
+            uint128 baseLiquidity = _liquidityForAmounts(baseLower, baseUpper, token0Bal, token1Bal);
             _mintLiquidity(baseLower, baseUpper, baseLiquidity);
         }
     }
 
     /**
-     * @notice Updates UniswapV3TokenizedLp's LP positions.
-     *  @dev The base position is placed first with as much liquidity as possible and is typically symmetric around the current price. This order should use up all of one token, leaving some unused quantity of the other. This unused amount is then placed as a single-sided order.
+     * @notice Updates "force" the UniV3TokenizedLp's LP position at the specified ticks and performs the indicated swap.
      *  @param _baseLower The lower tick of the base position
      *  @param _baseUpper The upper tick of the base position
      *  @param swapQuantity Quantity of tokens to swap; if quantity is positive, `swapQuantity` token0 are swapped for token1, if negative, `swapQuantity` token1 is swapped for token0
@@ -466,7 +546,41 @@ contract UniV3TokenizedLpExtOracle is
         if (_baseLower >= _baseUpper || _baseLower % tickSpacing != 0 || _baseUpper % tickSpacing != 0) {
             revert IUniswapV3TokenizedLp_BasePositionInvalid();
         }
+        (uint256 token0Bal, uint256 token1Bal) = _updateAndCollectPositionFees();
 
+        // Swap tokens if required as specified by `swapQuantity`
+        if (swapQuantity != 0) {
+            IUniswapV3Pool(pool).swap(
+                address(this),
+                swapQuantity > 0, // zeroToOne == true if swapQuantity is positive
+                swapQuantity > 0 ? swapQuantity : -swapQuantity,
+                // No limit on the price, swap through the ticks, until the `swapQuantity` is exhausted
+                swapQuantity > 0 ? UniV3MathHelper.MIN_SQRT_RATIO + 1 : UniV3MathHelper.MAX_SQRT_RATIO - 1,
+                abi.encode(address(this))
+            );
+        }
+
+        baseLower = _baseLower;
+        baseUpper = _baseUpper;
+
+        // Mint liquidity at the new baseLower and baseUpper ticks
+        uint128 baseLiquidity = _liquidityForAmounts(baseLower, baseUpper, token0Bal, token1Bal);
+        _mintLiquidity(baseLower, baseUpper, baseLiquidity);
+    }
+
+    /// Internal functions
+
+    /**
+     * @dev Contains the common flow between rebalance and autoRebalance functions
+     * - Updates fees
+     * - Burns all liquidity
+     * - Collects all fees
+     * - Distributes fees
+     * - Returns token0 and token1 balances
+     * @return token0Bal Amount of token0
+     * @return token1Bal Amount of token1
+     */
+    function _updateAndCollectPositionFees() internal returns (uint256, uint256) {
         // update fees
         (uint128 baseLiquidity,,) = _position(baseLower, baseUpper);
         if (baseLiquidity > 0) {
@@ -475,30 +589,13 @@ contract UniV3TokenizedLpExtOracle is
 
         // Withdraw all liquidity and collect all fees from Uniswap pool
         (, uint256 feesBase0, uint256 feesBase1) = _position(baseLower, baseUpper);
-
         _burnLiquidity(baseLower, baseUpper, baseLiquidity, address(this), true);
         _distributeFees(feesBase0, feesBase1);
 
         uint256 token0Bal = IERC20(token0).balanceOf(address(this));
         uint256 token1Bal = IERC20(token1).balanceOf(address(this));
-
         emit Rebalance(currentTick(), token0Bal, token1Bal, feesBase0, feesBase1, totalSupply());
-
-        // swap tokens if required
-        if (swapQuantity != 0) {
-            IUniswapV3Pool(pool).swap(
-                address(this),
-                swapQuantity > 0,
-                swapQuantity > 0 ? swapQuantity : -swapQuantity,
-                swapQuantity > 0 ? UniswapV3MathHelper.MIN_SQRT_RATIO + 1 : UniswapV3MathHelper.MAX_SQRT_RATIO - 1,
-                abi.encode(address(this))
-            );
-        }
-
-        baseLower = _baseLower;
-        baseUpper = _baseUpper;
-        baseLiquidity = _liquidityForAmounts(baseLower, baseUpper, token0Bal, token1Bal);
-        _mintLiquidity(baseLower, baseUpper, baseLiquidity);
+        return (token0Bal, token1Bal);
     }
 
     /**
@@ -579,8 +676,8 @@ contract UniV3TokenizedLpExtOracle is
             (uint256 owed0, uint256 owed1) = IUniswapV3Pool(pool).burn(tickLower, tickUpper, liquidity);
 
             // Collect amount owed
-            uint128 collect0 = collectAll ? type(uint128).max : _uint128Safe(owed0);
-            uint128 collect1 = collectAll ? type(uint128).max : _uint128Safe(owed1);
+            uint128 collect0 = collectAll ? type(uint128).max : UniV3MathHelper.uint128Safe(owed0);
+            uint128 collect1 = collectAll ? type(uint128).max : UniV3MathHelper.uint128Safe(owed1);
             if (collect0 > 0 || collect1 > 0) {
                 (amount0, amount1) = IUniswapV3Pool(pool).collect(to, tickLower, tickUpper, collect0, collect1);
             }
@@ -588,21 +685,21 @@ contract UniV3TokenizedLpExtOracle is
     }
 
     /**
-     * @notice Calculates liquidity amount for the given shares.
+     * @notice Calculates the "virtual" liquidity amount for the given shares.
      *  @param tickLower The lower tick of the liquidity position
      *  @param tickUpper The upper tick of the liquidity position
      *  @param shares number of shares
      */
     function _liquidityForShares(int24 tickLower, int24 tickUpper, uint256 shares) internal view returns (uint128) {
         (uint128 position,,) = _position(tickLower, tickUpper);
-        return _uint128Safe((uint256(position) * shares) / totalSupply());
+        return UniV3MathHelper.uint128Safe((uint256(position) * shares) / totalSupply());
     }
 
     /**
      * @notice Returns information about the liquidity position.
      *  @param tickLower The lower tick of the liquidity position
      *  @param tickUpper The upper tick of the liquidity position
-     *  @param liquidity liquidity amount
+     *  @param liquidity virtual liquidity amount
      *  @param tokensOwed0 amount of token0 owed to the owner of the position
      *  @param tokensOwed1 amount of token1 owed to the owner of the position
      */
@@ -616,60 +713,6 @@ contract UniV3TokenizedLpExtOracle is
     }
 
     /**
-     * @notice Callback function for mint
-     *  @dev this is where the payer transfers required token0 and token1 amounts
-     *  @param amount0 required amount of token0
-     *  @param amount1 required amount of token1
-     *  @param data encoded payer's address
-     */
-    function uniswapV3MintCallback(uint256 amount0, uint256 amount1, bytes calldata data) external override {
-        if (msg.sender != address(pool)) {
-            revert IUniswapV3TokenizedLp_MustBePool(523);
-        }
-        address payer = abi.decode(data, (address));
-
-        if (payer == address(this)) {
-            if (amount0 > 0) IERC20(token0).safeTransfer(msg.sender, amount0);
-            if (amount1 > 0) IERC20(token1).safeTransfer(msg.sender, amount1);
-        } else {
-            if (amount0 > 0) {
-                IERC20(token0).safeTransferFrom(payer, msg.sender, amount0);
-            }
-            if (amount1 > 0) {
-                IERC20(token1).safeTransferFrom(payer, msg.sender, amount1);
-            }
-        }
-    }
-
-    /**
-     * @notice Callback function for swap
-     *  @dev this is where the payer transfers required token0 and token1 amounts
-     *  @param amount0Delta required amount of token0
-     *  @param amount1Delta required amount of token1
-     *  @param data encoded payer's address
-     */
-    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external override {
-        if (msg.sender != address(pool)) {
-            revert IUniswapV3TokenizedLp_MustBePool(550);
-        }
-        address payer = abi.decode(data, (address));
-
-        if (amount0Delta > 0) {
-            if (payer == address(this)) {
-                IERC20(token0).safeTransfer(msg.sender, uint256(amount0Delta));
-            } else {
-                IERC20(token0).safeTransferFrom(payer, msg.sender, uint256(amount0Delta));
-            }
-        } else if (amount1Delta > 0) {
-            if (payer == address(this)) {
-                IERC20(token1).safeTransfer(msg.sender, uint256(amount1Delta));
-            } else {
-                IERC20(token1).safeTransferFrom(payer, msg.sender, uint256(amount1Delta));
-            }
-        }
-    }
-
-    /**
      * @notice Checks if the last price change happened in the current block
      */
     function _checkHysteresis() private view returns (bool) {
@@ -679,10 +722,10 @@ contract UniV3TokenizedLpExtOracle is
     }
 
     /**
-     * @notice Calculates token0 and token1 amounts for liquidity in a position
+     * @notice Calculates token0 and token1 amounts for virtual liquidity in a position
      *  @param tickLower The lower tick of the liquidity position
      *  @param tickUpper The upper tick of the liquidity position
-     *  @param liquidity Amount of liquidity in the position
+     *  @param liquidity Amount of virtual liquidity in the position
      */
     function _amountsForLiquidity(int24 tickLower, int24 tickUpper, uint128 liquidity)
         internal
@@ -690,10 +733,10 @@ contract UniV3TokenizedLpExtOracle is
         returns (uint256, uint256)
     {
         (uint160 sqrtRatioX96,,,,,,) = IUniswapV3Pool(pool).slot0();
-        return UniswapV3MathHelper.getAmountsForLiquidity(
+        return UniV3MathHelper.getAmountsForLiquidity(
             sqrtRatioX96,
-            UniswapV3MathHelper.getSqrtRatioAtTick(tickLower),
-            UniswapV3MathHelper.getSqrtRatioAtTick(tickUpper),
+            UniV3MathHelper.getSqrtRatioAtTick(tickLower),
+            UniV3MathHelper.getSqrtRatioAtTick(tickUpper),
             liquidity
         );
     }
@@ -711,97 +754,31 @@ contract UniV3TokenizedLpExtOracle is
         returns (uint128)
     {
         (uint160 sqrtRatioX96,,,,,,) = IUniswapV3Pool(pool).slot0();
-        return UniswapV3MathHelper.getLiquidityForAmounts(
+        return UniV3MathHelper.getLiquidityForAmounts(
             sqrtRatioX96,
-            UniswapV3MathHelper.getSqrtRatioAtTick(tickLower),
-            UniswapV3MathHelper.getSqrtRatioAtTick(tickUpper),
+            UniV3MathHelper.getSqrtRatioAtTick(tickLower),
+            UniV3MathHelper.getSqrtRatioAtTick(tickUpper),
             amount0,
             amount1
         );
     }
 
     /**
-     * @notice Calculates total quantity of token0 and token1 in both positions (and unused in the UniswapV3TokenizedLp)
-     *  @param total0 Quantity of token0 in both positions (and unused in the UniswapV3TokenizedLp)
-     *  @param total1 Quantity of token1 in both positions (and unused in the UniswapV3TokenizedLp)
+     * @notice Calculates USD value of a token amount
+     * @param token_ to get price
+     * @param amount_ amount
+     * @param usdOracle_  oracle to get price
      */
-    function getTotalAmounts() public view override returns (uint256 total0, uint256 total1) {
-        (, uint256 base0, uint256 base1) = getBasePosition();
-        total0 = IERC20(token0).balanceOf(address(this)) + base0;
-        total1 = IERC20(token1).balanceOf(address(this)) + base1;
-    }
-
-    /**
-     * @notice Calculates amount of total liquidity in the base position
-     *  @param liquidity Amount of total liquidity in the base position
-     *  @param amount0 Estimated amount of token0 that could be collected by burning the base position
-     *  @param amount1 Estimated amount of token1 that could be collected by burning the base position
-     */
-    function getBasePosition() public view returns (uint128 liquidity, uint256 amount0, uint256 amount1) {
-        (uint128 positionLiquidity, uint128 tokensOwed0, uint128 tokensOwed1) = _position(baseLower, baseUpper);
-        (amount0, amount1) = _amountsForLiquidity(baseLower, baseUpper, positionLiquidity);
-        liquidity = positionLiquidity;
-        amount0 = amount0 + uint256(tokensOwed0);
-        amount1 = amount1 + uint256(tokensOwed1);
-    }
-
-    /**
-     * @notice Returns current price tick
-     *  @param tick Uniswap pool's current price tick
-     */
-    function currentTick() public view returns (int24 tick) {
-        (, int24 tick_,,,,, bool unlocked_) = IUniswapV3Pool(pool).slot0();
-        if (!unlocked_) revert IUniswapV3TokenizedLp_PoolLocked();
-        tick = tick_;
-    }
-
-    function currentSqrtPriceX96() public view returns (uint160 sqrtPriceX96) {
-        (uint160 sqrtPriceX96_,,,,,, bool unlocked_) = IUniswapV3Pool(pool).slot0();
-        if (!unlocked_) revert IUniswapV3TokenizedLp_PoolLocked();
-        sqrtPriceX96 = sqrtPriceX96_;
-    }
-
-    /**
-     * @notice returns equivalent _tokenOut for _amountIn, _tokenIn using spot pool price
-     *  @param _tokenIn token the input amount is in
-     *  @param _tokenOut token for the output amount
-     *  @param _tick tick for the spot price
-     *  @param _amountIn amount in _tokenIn
-     *  @param amountOut equivalent amount in _tokenOut
-     */
-    function fetchSpot(address _tokenIn, address _tokenOut, int24 _tick, uint256 _amountIn)
-        public
-        pure
-        returns (uint256 amountOut)
-    {
-        return UniswapV3MathHelper.getQuoteAtTick(_tick, _uint128Safe(_amountIn), _tokenIn, _tokenOut);
-    }
-
-    /**
-     * @notice returns equivalent _tokenOut for _amountIn, _tokenIn using external oracle price
-     *  @param tokenIn_ token the input amount is in
-     *  @param tokenOut_ token for the output amount
-     *  @param amountIn_ amount in _tokenIn
-     *  @param amountOut equivalent amount in _tokenOut
-     */
-    function fetchOracle(address tokenIn_, address tokenOut_, uint256 amountIn_)
-        public
-        view
-        returns (uint256 amountOut)
-    {
-        uint256 valueIn = tokenIn_ == token0
-            ? _getUsdValue(tokenIn_, amountIn_, usdOracle0Ref)
-            : _getUsdValue(tokenIn_, amountIn_, usdOracle1Ref);
-
-        amountOut = tokenOut_ == token0
-            ? _getTokenFromUsdValue(tokenOut_, usdOracle0Ref, valueIn)
-            : _getTokenFromUsdValue(tokenOut_, usdOracle1Ref, valueIn);
-    }
-
     function _getUsdValue(address token_, uint256 amount_, IPriceFeed usdOracle_) internal view returns (uint256) {
         return (uint256(usdOracle_.latestAnswer()) * amount_) / (10 ** uint256(ERC20(token_).decimals()));
     }
 
+    /**
+     * @notice Calculates token amount of a USD value
+     * @param token_ amount
+     * @param usdOracle_  oracle to get price
+     * @param value_ USD value
+     */
     function _getTokenFromUsdValue(address token_, IPriceFeed usdOracle_, uint256 value_)
         internal
         view
@@ -810,25 +787,59 @@ contract UniV3TokenizedLpExtOracle is
         return (value_ * 10 ** ERC20(token_).decimals()) / uint256(usdOracle_.latestAnswer());
     }
 
-    function _encodePriceSqrtX96(uint256 reserve0, uint256 reserve1) internal pure returns (uint160) {
-        return _uint160Safe((Math.sqrt(reserve1 / reserve0)) * 2 ** 96);
+    /// Uniswap V3 callback functions
+
+    /**
+     * @notice Callback function required by the UniswapV3 pool for minting a position
+     *  @dev this is where the payer transfers required token0 and token1 amounts
+     *  @param amount0 required amount of token0
+     *  @param amount1 required amount of token1
+     *  @param data encoded payer's address
+     */
+    function uniswapV3MintCallback(uint256 amount0, uint256 amount1, bytes calldata data) external override {
+        if (msg.sender != address(pool)) {
+            revert IUniswapV3TokenizedLp_MustBePool(891);
+        }
+        address payer = abi.decode(data, (address));
+
+        if (payer == address(this)) {
+            if (amount0 > 0) IERC20(token0).safeTransfer(msg.sender, amount0);
+            if (amount1 > 0) IERC20(token1).safeTransfer(msg.sender, amount1);
+        } else {
+            if (amount0 > 0) {
+                IERC20(token0).safeTransferFrom(payer, msg.sender, amount0);
+            }
+            if (amount1 > 0) {
+                IERC20(token1).safeTransferFrom(payer, msg.sender, amount1);
+            }
+        }
     }
 
     /**
-     * @notice uint128Safe function
-     *  @param x input value
+     * @notice Callback function required by the UniswapV3 pool for executing a swap
+     *  @dev this is where the payer transfers required token0 and token1 amounts
+     *  @param amount0Delta required amount of token0
+     *  @param amount1Delta required amount of token1
+     *  @param data encoded payer's address
      */
-    function _uint128Safe(uint256 x) internal pure returns (uint128) {
-        if (x > type(uint128).max) revert IUniswapV3TokenizedLp_UnsafeCast();
-        return uint128(x);
-    }
+    function uniswapV3SwapCallback(int256 amount0Delta, int256 amount1Delta, bytes calldata data) external override {
+        if (msg.sender != address(pool)) {
+            revert IUniswapV3TokenizedLp_MustBePool(917);
+        }
+        address payer = abi.decode(data, (address));
 
-    /**
-     * @notice uint160Safe function
-     *  @param x input value
-     */
-    function _uint160Safe(uint256 x) internal pure returns (uint160) {
-        if (x > type(uint160).max) revert IUniswapV3TokenizedLp_UnsafeCast();
-        return uint160(x);
+        if (amount0Delta > 0) {
+            if (payer == address(this)) {
+                IERC20(token0).safeTransfer(msg.sender, uint256(amount0Delta));
+            } else {
+                IERC20(token0).safeTransferFrom(payer, msg.sender, uint256(amount0Delta));
+            }
+        } else if (amount1Delta > 0) {
+            if (payer == address(this)) {
+                IERC20(token1).safeTransfer(msg.sender, uint256(amount1Delta));
+            } else {
+                IERC20(token1).safeTransferFrom(payer, msg.sender, uint256(amount1Delta));
+            }
+        }
     }
 }
