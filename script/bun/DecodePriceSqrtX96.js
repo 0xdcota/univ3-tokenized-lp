@@ -3,10 +3,10 @@ const bn = require("bignumber.js");
 bn.config({ EXPONENTIAL_AT: 999999, DECIMAL_PLACES: 40 });
 
 function decodePriceSqrtX96(priceSqrtX96) {
-  return new bn(priceSqrtX96.toString())
-    .div(new bn(2).pow(96))
-    .pow(2)
-    .integerValue(3);
+  priceSqrtX96 = new bn(priceSqrtX96);
+  const dividedByX96 = priceSqrtX96.div(new bn(2).pow(96));
+  const raisedToPower = dividedByX96.pow(new bn(2));
+  return raisedToPower;
 }
 
 const arg1_priceSqrtX96 = process.argv[2];
