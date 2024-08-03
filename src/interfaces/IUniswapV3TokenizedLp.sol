@@ -16,64 +16,62 @@ interface IUniswapV3TokenizedLp {
         uint256 totalSupply
     );
 
-    event MaxTotalSupply(address indexed sender, uint256 maxTotalSupply);
+    event MaxTotalSupply(uint256 newMaxTotalSupply);
 
-    event Hysteresis(address indexed sender, uint256 hysteresis);
+    event Hysteresis(uint256 newHysteresis);
 
-    event DepositMax(address indexed sender, uint256 deposit0Max, uint256 deposit1Max);
+    event DepositMax(uint256 newDeposit0Max, uint256 newDeposit1Max);
 
-    event Affiliate(address indexed sender, address affiliate);
+    event Affiliate(address affiliate);
 
-    event DeployUniV3TokenizedLp(
-        address indexed sender,
-        address indexed pool,
-        bool allowToken0,
-        bool allowToken1,
-        address owner,
-        address usdOracle0Ref,
-        address usdOracle1Ref
-    );
+    event ApprovedRebalancer(address rebalancer, bool isApproved);
 
-    event FeeRecipient(address indexed sender, address feeRecipient);
+    event FeeUpdate(uint256 newFee);
 
-    event BaseFee(address indexed sender, uint256 baseFee);
+    event FeeRecipient(address newFeeRecipient);
 
-    event BaseFeeSplit(address indexed sender, uint256 baseFeeSplit);
+    event FeeSplit(uint256 newFeeSplit);
 
-    event UsdOracleReferences(address indexed sender, address usd0RefOracle, address usd1RefOracle);
+    event UsdOracleReferences(address usd0RefOracle, address usd1RefOracle);
 
-    event BaseBpsRanges(address indexed sender, uint256 baseBpsRangeLower, uint256 baseBpsRangeUpper);
+    event BpsRanges(uint256 newBpsRangeLower, uint256 newBpsRangeUpper);
+
+    event ActionBlockDelay(uint256 newBlockWaitTime);
 
     /// Errors
 
-    error IUniswapV3TokenizedLp_alreadyInitialized();
-    error IUniswapV3TokenizedLp_ZeroAddress();
-    error IUniswapV3TokenizedLp_NoAllowedTokens();
-    error IUniswapV3TokenizedLp_ZeroValue();
-    error IUniswapV3TokenizedLp_Token0NotAllowed();
-    error IUniswapV3TokenizedLp_Token1NotAllowed();
-    error IUniswapV3TokenizedLp_MoreThanMaxDeposit();
-    error IUniswapV3TokenizedLp_MaxTotalSupplyExceeded();
-    error IUniswapV3TokenizedLp_UnexpectedBurn();
-    error IUniswapV3TokenizedLp_BasePositionInvalid();
-    error IUniswapV3TokenizedLp_LimitPositionInvalid();
-    error IUniswapV3TokenizedLp_FeeMustBeLtePrecision();
-    error IUniswapV3TokenizedLp_SplitMustBeLtePrecision();
-    error IUniswapV3TokenizedLp_MustBePool(uint256 line);
-    error IUniswapV3TokenizedLp_UnsafeCast();
-    error IUniswapV3TokenizedLp_PoolLocked();
-    error IUniswapV3TokenizedLp_InvalidBaseBpsRange();
-    error IUniswapV3TokenizedLp_SetBaseTicksViaRebalanceFirst();
+    error UniswapV3TokenizedLp_alreadyInitialized();
+    error UniswapV3TokenizedLp_ZeroAddress();
+    error UniswapV3TokenizedLp_NoAllowedTokens();
+    error UniswapV3TokenizedLp_ZeroValue();
+    error UniswapV3TokenizedLp_Token0NotAllowed();
+    error UniswapV3TokenizedLp_Token1NotAllowed();
+    error UniswapV3TokenizedLp_MoreThanMaxDeposit();
+    error UniswapV3TokenizedLp_MaxTotalSupplyExceeded();
+    error UniswapV3TokenizedLp_UnexpectedBurn();
+    error UniswapV3TokenizedLp_BasePositionInvalid();
+    error UniswapV3TokenizedLp_LimitPositionInvalid();
+    error UniswapV3TokenizedLp_FeeMustBeLtePrecision();
+    error UniswapV3TokenizedLp_SplitMustBeLtePrecision();
+    error UniswapV3TokenizedLp_MustBePool(uint256 instance);
+    error UniswapV3TokenizedLp_UnsafeCast();
+    error UniswapV3TokenizedLp_PoolLocked();
+    error UniswapV3TokenizedLp_failedToQueryPool();
+    error UniswapV3TokenizedLp_invalidSlot0Size();
+    error UniswapV3TokenizedLp_InvalidBaseBpsRange();
+    error UniswapV3TokenizedLp_PositionOutOfRange();
+    error UniswapV3TokenizedLp_SetBaseTicksViaRebalanceFirst();
+    error UniswapV3TokenizedLp_NotAllowed();
+    error UniswapV3TokenizedLp_NoWithdrawOrTransferDuringDelay();
 
     /// View methods
-
     function pool() external view returns (address);
 
     function token0() external view returns (address);
 
-    function allowToken0() external view returns (bool);
-
     function token1() external view returns (address);
+
+    function allowToken0() external view returns (bool);
 
     function allowToken1() external view returns (bool);
 
@@ -95,7 +93,9 @@ interface IUniswapV3TokenizedLp {
 
     function currentTick() external view returns (int24 tick);
 
-    function currentSqrtPriceX96() external view returns (uint160 sqrtPriceX96);
+    function getCurrentSqrtPriceX96() external view returns (uint160 sqrtPriceX96);
+
+    function getTimeWeightedSqrtPriceX96() external view returns (uint160 sqrtPriceX96);
 
     function fetchSpot(address tokenIn, address tokenOut, uint256 amountIn) external view returns (uint256 amountOut);
 
@@ -116,15 +116,15 @@ interface IUniswapV3TokenizedLp {
 
     function setDepositMax(uint256 deposit0Max, uint256 deposit1Max) external;
 
-    function setBaseBpsRanges(uint256 baseBpsRangeLower, uint256 baseBpsRangeUpper) external;
+    function setBpsRanges(uint256 baseBpsRangeLower, uint256 baseBpsRangeUpper) external;
 
     function setFeeRecipient(address feeRecipient) external;
 
     function setAffiliate(address affiliate) external;
 
-    function setBaseFee(uint256 baseFee) external;
+    function setFee(uint256 baseFee) external;
 
-    function setBaseFeeSplit(uint256 baseFeeSplit) external;
+    function setFeeSplit(uint256 baseFeeSplit) external;
 
     function setHysteresis(uint256 hysteresis) external;
 
@@ -134,7 +134,13 @@ interface IUniswapV3TokenizedLp {
 
     function withdraw(uint256 shares, address receiver) external returns (uint256, uint256);
 
-    function autoRebalance() external returns (bool executed);
+    function autoRebalance(bool useOracleForNewBounds, bool withSwapping)
+        external
+        returns (int256 amount0, int256 amount1);
 
-    function rebalance(int24 baseLower, int24 baseUpper, int256 swapQuantity) external;
+    function rebalance(int24 _baseLower, int24 _baseUpper, int256 swapQuantity, int24 tickLimit) external;
+
+    function swapIdleAndAddToLiquidity(int256 swapInputAmount, uint160 limit, bool addToLiquidity)
+        external
+        returns (int256 amount0, int256 amount1);
 }
