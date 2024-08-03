@@ -140,7 +140,7 @@ interface IUniswapV3TokenizedLp {
 
     function rebalance(int24 _baseLower, int24 _baseUpper, int256 swapQuantity, int24 tickLimit) external;
 
-    function swapIdleAndAddToLiquidity(int256 swapInputAmount, uint160 limit, bool addToLiquidity)
+    function swapIdleAndAddToLiquidity(int256 swapInputAmount, int24 tickLimit, bool addToLiquidity)
         external
         returns (int256 amount0, int256 amount1);
 }

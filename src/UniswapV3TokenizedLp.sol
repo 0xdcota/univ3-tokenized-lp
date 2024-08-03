@@ -72,8 +72,8 @@ contract UniswapV3TokenizedLp is
     IPriceFeed public usdOracle0Ref;
     IPriceFeed public usdOracle1Ref;
 
-    uint256 public baseBpsRangeLower;
-    uint256 public baseBpsRangeUpper;
+    uint256 public bpsRangeLower;
+    uint256 public bpsRangeUpper;
     uint256 public hysteresis;
 
     uint256 public deposit0Max;
@@ -146,7 +146,7 @@ contract UniswapV3TokenizedLp is
         // default 1% threshold
         hysteresis = (100 * PRECISION) / FULL_PERCENT;
         // default 12.5% range around the current price for base position
-        baseBpsRangeLower = baseBpsRangeUpper = 1250;
+        bpsRangeLower = bpsRangeUpper = 1250;
         deposit0Max = deposit1Max = type(uint256).max; // max uint256
         feeRecipient = msg.sender;
         fee = DEFAULT_BASE_FEE;
@@ -303,7 +303,7 @@ contract UniswapV3TokenizedLp is
     }
 
     /**
-     * @notice Sets the baseBpsRangeLower and baseBpsRangeUpper values
+     * @notice Sets the bpsRangeLower and bpsRangeUpper values
      * @param _bpsRangeLower lower bound percent below the target price
      * @param _bpsRangeUpper upper bound percent above the target price
      * @dev _bpsRangeLower and _bpsRangeUpper should be in the range [1, 10000]
@@ -314,8 +314,8 @@ contract UniswapV3TokenizedLp is
         ) {
             revert UniswapV3TokenizedLp_InvalidBaseBpsRange();
         }
-        baseBpsRangeLower = _bpsRangeLower;
-        baseBpsRangeUpper = _bpsRangeUpper;
+        bpsRangeLower = _bpsRangeLower;
+        bpsRangeUpper = _bpsRangeUpper;
         emit BpsRanges(_bpsRangeLower, _bpsRangeUpper);
     }
 
@@ -564,7 +564,7 @@ contract UniswapV3TokenizedLp is
 
     /**
      * @notice Rebalance the lp position around the target external oracle price.
-     * The base position is updated to be `baseBpsRangeLower` percent and `baseBpsRangeUpper` percent around the external oracle price.
+     * The base position is updated to be `bpsRangeLower` percent and `bpsRangeUpper` percent around the external oracle price.
      * If `withSwapping` is true, and the difference between the spot price and the external oracle price is larger than `hysteresis`
      * the call will attempt to swap either side of the AUM tokens as required to match the target price.
      * Fees are collected and distributed in the process.
@@ -602,7 +602,7 @@ contract UniswapV3TokenizedLp is
         int24 baseLower_ = UniV3MathHelper.roundTick(
             UniV3MathHelper.getTickAtSqrtRatio(
                 UniV3MathHelper.encodePriceSqrtX96(
-                    PRECISION, ((priceRefForBounds * (FULL_PERCENT - baseBpsRangeLower)) / FULL_PERCENT)
+                    PRECISION, ((priceRefForBounds * (FULL_PERCENT - bpsRangeLower)) / FULL_PERCENT)
                 )
             ),
             tickSpacing
@@ -610,7 +610,7 @@ contract UniswapV3TokenizedLp is
         int24 baseUpper_ = UniV3MathHelper.roundTick(
             UniV3MathHelper.getTickAtSqrtRatio(
                 UniV3MathHelper.encodePriceSqrtX96(
-                    PRECISION, ((priceRefForBounds * (FULL_PERCENT + baseBpsRangeUpper)) / FULL_PERCENT)
+                    PRECISION, ((priceRefForBounds * (FULL_PERCENT + bpsRangeUpper)) / FULL_PERCENT)
                 )
             ),
             tickSpacing
@@ -655,9 +655,9 @@ contract UniswapV3TokenizedLp is
      * @param _baseUpper The upper tick of the base position
      * @param swapQuantity Quantity of tokens to swap; if quantity is positive, `swapQuantity` token0 are
      * swapped for token1, if negative, `swapQuantity` token1 is swapped for token0
-     * @param tickLimit Optional tick limit (converted internally to sqrtPriceX96) to protect against slippage of the `swapQuantity`. Pass
-     * `0` to swap through the ticks until the `swapQuantity` is exhausted. Beware that passing 0
-     * is a slippage unprotected swap.
+     * @param tickLimit tick limit (converted internally to sqrtPriceX96) to protect against slippage of the `swapQuantity`.
+     * Pass `type(int24).max` to swap through the ticks until the `swapQuantity` is exhausted.
+     * Beware that passing `tickLimit` == type(int24).max is a slippage unprotected swap.
      * @dev Refer to {IUniswapV3PoolActions.swap(...)} for more details on the `limit` parameter.
      */
     function rebalance(int24 _baseLower, int24 _baseUpper, int256 swapQuantity, int24 tickLimit)
@@ -672,7 +672,7 @@ contract UniswapV3TokenizedLp is
 
         // Swap tokens if required as specified by `swapQuantity`
         if (swapQuantity != 0) {
-            uint160 sqrtPriceX96Limit = tickLimit != 0 ? UniV3MathHelper.getSqrtRatioAtTick(tickLimit) : 0;
+            uint160 sqrtPriceX96Limit = tickLimit == type(int24).max ? 0 : UniV3MathHelper.getSqrtRatioAtTick(tickLimit);
             // If no limit on the price, swap through the ticks, until the `swapQuantity` is exhausted
             uint160 swapLimit = sqrtPriceX96Limit != 0
                 ? sqrtPriceX96Limit
@@ -703,14 +703,14 @@ contract UniswapV3TokenizedLp is
      * are deployed to the base position
      * @param swapInputAmount Quantity of tokens to swap; if quantity is positive, `swapInputAmount` token0 are
      * swapped for token1, if negative, `swapInputAmount` token1 is swapped for token0
-     * @param limit Optional limit sqrtPriceX96 to protect against slippage of the `swapQuantity`. Pass
-     * `0` to swap through the ticks until the `swapQuantity` is exhausted. Beware that passing 0
-     * is a slippage unprotected swap.
+     * @param tickLimit tick limit (converted internally to sqrtPriceX96) to protect against slippage of the `swapQuantity`.
+     * Pass `type(int24).max` to swap through the ticks until the `swapQuantity` is exhausted.
+     * Beware that passing `tickLimit` == type(int24).max is a slippage unprotected swap.
      * @param addToLiquidity If true, the contract will attempt to add the new idle liquidity to the pool at the base position
      * @dev Refer to {IUniswapV3PoolActions.swap(...)} for more details on the `limit` parameter.
      * If `swapInputAmount` is greater than the idle balance of the token, the swap will be limited to the idle balance.
      */
-    function swapIdleAndAddToLiquidity(int256 swapInputAmount, uint160 limit, bool addToLiquidity)
+    function swapIdleAndAddToLiquidity(int256 swapInputAmount, int24 tickLimit, bool addToLiquidity)
         public
         nonReentrant
         isRebalancer
@@ -735,8 +735,9 @@ contract UniswapV3TokenizedLp is
         }
 
         // If no limit on the price, swap through the ticks, until the `swapQuantity` is exhausted
-        uint160 swapLimit = limit != 0
-            ? limit
+        uint160 sqrtPriceX96Limit = tickLimit == type(int24).max ? 0 : UniV3MathHelper.getSqrtRatioAtTick(tickLimit);
+        uint160 swapLimit = sqrtPriceX96Limit != 0
+            ? sqrtPriceX96Limit
             : effectiveSwapQty > 0 ? UniV3MathHelper.MIN_SQRT_RATIO + 1 : UniV3MathHelper.MAX_SQRT_RATIO - 1;
 
         (amount0, amount1) = IUniswapV3Pool(pool).swap(
