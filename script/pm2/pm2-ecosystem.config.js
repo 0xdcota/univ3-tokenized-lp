@@ -1,23 +1,35 @@
 require("dotenv").config();
+// const { ethers } = require("ethers");
 
-const XOC_ADDR = "";
-const LP_ADDRESS_BASE = "";
+const READ_ONLY = false;
 
-const PK = process.env.PRIVATE_KEY;
-const BASE_RPC = process.env.OPTIMISM_RPC;
+// Base
+const RPC_URL_BASE = `${process.env.RPC_BASE}`;
+const TOKEN0_ADDR_BASE = `${process.env.TOKEN0_ADDR_BASE}`;
+const TOKEN0_NAME_BASE = `${process.env.TOKEN0_NAME_BASE}`;
+const TOKEN0_DECIMALS_BASE = `${process.env.TOKEN0_DECIMALS_BASE}`;
+const TOKEN1_ADDR_BASE = `${process.env.TOKEN1_ADDR_BASE}`;
+const TOKEN1_NAME_BASE = `${process.env.TOKEN1_NAME_BASE}`;
+const TOKEN1_DECIMALS_BASE = `${process.env.TOKEN1_DECIMALS_BASE}`;
+const LP_TOKEN_ADDR_BASE = `${process.env.LP_TOKEN_ADDR_BASE}`;
 
 module.exports = {
   apps: [
     {
-      name: "lp-autorebalancer",
-      script: "./scripts/pm2/lp-autorebalancer.js",
+      name: "base-lp-logger",
+      script: "./script/pm2/lp-logger.js",
       env: {
         LOCAL_CHAIN_ID: 8453,
-        LOCAL_LP_ADDR: LP_ADDRESS_BASE,
-        LOCAL_RPC: BASE_RPC,
-        LOCAL_XOC_ADDR: XOC_ADDR,
+        LOCAL_RPC: RPC_URL_BASE,
+        LOCAL_LP_TOKEN_ADDR: LP_TOKEN_ADDR_BASE,
+        LOCAL_TOKEN0_ADDR: TOKEN0_ADDR_BASE,
+        LOCAL_TOKEN0_NAME: TOKEN0_NAME_BASE,
+        LOCAL_TOKEN0_DECIMALS: TOKEN0_DECIMALS_BASE,
+        LOCAL_TOKEN1_ADDR: TOKEN1_ADDR_BASE,
+        LOCAL_TOKEN1_NAME: TOKEN1_NAME_BASE,
+        LOCAL_TOKEN1_DECIMALS: TOKEN1_DECIMALS_BASE,
       },
-      cron_restart: "*/30 * * * *", //  restart every 30 minutes
+      cron_restart: "* * * * *", // Every minute
       autorestart: false, // This prevents PM2 from automatically restarting your script if it crashes or stops
     },
   ],

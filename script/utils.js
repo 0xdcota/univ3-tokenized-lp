@@ -1,3 +1,13 @@
+const TABS = "\t\t\t\t\t";
+
+function getTime() {
+  return new Date();
+}
+
+function pad(number, padding) {
+  return String(number).padStart(padding, "0");
+}
+
 function logNewLine(type, message) {
   const currentTime = getTime();
   const year = currentTime.getFullYear();
@@ -8,10 +18,15 @@ function logNewLine(type, message) {
   const seconds = pad(currentTime.getSeconds(), 2);
   const milliseconds = pad(currentTime.getMilliseconds(), 3);
   console.log(
-    `\n${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${milliseconds} ${type} - ${message}`
+    `${year}-${month}-${day} ${hours}:${minutes}:${seconds}.${milliseconds} ${type} - ${message}`
   );
+}
+
+function logData(data) {
+  console.log(`${TABS} ${data}`);
 }
 
 module.exports = {
   logNewLine,
+  logData,
 };
