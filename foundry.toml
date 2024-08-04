@@ -7,7 +7,7 @@ libs = ["lib"]
 
 [profile.base]
 libraries = [
-    "src/libraries/UniV3MathHelper.sol:UniV3MathHelper:0x09b367fd66dF8DA090FB671F989E8d29921E6337"
+    "src/libraries/UniV3MathHelper.sol:UniV3MathHelper:0x2d4f1a72e51c586a580315631f885f5f307e5b57"
 ]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
