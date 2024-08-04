@@ -135,8 +135,8 @@ contract UniswapV3TokenizedLp is
         token1 = IUniswapV3Pool(_pool).token1();
         string memory token0Symbol = ERC20(token0).symbol();
         string memory token1Symbol = ERC20(token1).symbol();
-        _name = string(abi.encodePacked("UniV3 LpToken: ", token0Symbol, "-", token1Symbol));
-        _symbol = string(abi.encodePacked("uV3Lp-", token0Symbol, "-", token1Symbol));
+        _name = string(abi.encodePacked("LpToken: ", token0Symbol, "-", token1Symbol));
+        _symbol = string(abi.encodePacked("Lp-", token0Symbol, "-", token1Symbol));
 
         allowToken0 = _allowToken0;
         allowToken1 = _allowToken1;
