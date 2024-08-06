@@ -11,8 +11,7 @@ const actionFn = async () => {
   console.log(
     "------------------------------------------------------------------"
   );
-  logNewLine("INF", "starting position-logger routine");
-
+  logNewLine("INF", "starting lp-logger routine");
 
   const chain = {
     chainId: process.env.LOCAL_CHAIN_ID.toString(),
@@ -29,8 +28,12 @@ const actionFn = async () => {
   logData(`Chain: ${chain.chainId}`);
   logData(`rpc: ${chain.rpc}`);
   logData(`lpTokenAddr: ${chain.lpTokenAddr}`);
-  logData(`token0Addr: ${chain.token0Addr}, ${chain.token0Name}, decimals: ${chain.token0Decimals}`);
-  logData(`token1Addr: ${chain.token1Addr}, ${chain.token1Name}, decimals: ${chain.token1Decimals}`);
+  logData(
+    `token0Addr: ${chain.token0Addr}, ${chain.token0Name}, decimals: ${chain.token0Decimals}`
+  );
+  logData(
+    `token1Addr: ${chain.token1Addr}, ${chain.token1Name}, decimals: ${chain.token1Decimals}`
+  );
 
   /// Build contract instances
   if (!chain.chainId)
@@ -49,8 +52,16 @@ const actionFn = async () => {
     signer
   );
 
-  const token0Contract = new ethers.Contract(chain.token0Addr, erc20Artifact.abi, signer);
-  const token1Contract = new ethers.Contract(chain.token1Addr, erc20Artifact.abi, signer);
+  const token0Contract = new ethers.Contract(
+    chain.token0Addr,
+    erc20Artifact.abi,
+    signer
+  );
+  const token1Contract = new ethers.Contract(
+    chain.token1Addr,
+    erc20Artifact.abi,
+    signer
+  );
 
   const success = await logPositionInfo(
     chain.lpTokenAddr,
@@ -66,7 +77,7 @@ const actionFn = async () => {
     logNewLine("ERR", `failed to log position info`);
   }
 
-  logNewLine("INF", "position-logger routine complete!");
+  logNewLine("INF", "lp-logger routine complete!");
 };
 
 // Do not change this.

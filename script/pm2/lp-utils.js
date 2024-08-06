@@ -350,6 +350,7 @@ module.exports = {
   getAUMBalances,
   getCurrentBounds,
   getIdleBalances,
+  getPriceDelta,
   getToken1AmtInToken0,
   executeSwapIdle,
   executeAutoRebalance,
