@@ -10,4 +10,9 @@ libraries = [
     "src/libraries/UniV3MathHelper.sol:UniV3MathHelper:0x2d4f1a72e51c586a580315631f885f5f307e5b57"
 ]
 
+[profile.polygon]
+libraries = [
+    "src/libraries/UniV3MathHelper.sol:UniV3MathHelper:0x9300c266c57c113cf53c02d3861c85f98954b22b"
+]
+
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
