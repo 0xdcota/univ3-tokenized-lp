@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import {IPriceFeed, PriceFeedAdapter} from "./PriceFeedAdapter.sol";
 
-/// @title ValidatedPriceFeedAdatper Contract
+/// @title ValidatedPriceFeedAdapter Contract
 contract ValidatedPriceFeedAdapter is PriceFeedAdapter {
     constructor(address _priceFeed, uint256 _heartbeat) PriceFeedAdapter(_priceFeed, _heartbeat) {}
 
