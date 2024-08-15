@@ -8,7 +8,13 @@ function tokenSorter(tokenA, tokenB) {
   return Number(tokenA) < Number(tokenB) ? [tokenA, tokenB] : [tokenB, tokenA];
 }
 
-async function getAUMBalances(tokenizedLpContract, token0Addr, token0Decimals, token1Addr, token1Decimals) {
+async function getAUMBalances(
+  tokenizedLpContract,
+  token0Addr,
+  token0Decimals,
+  token1Addr,
+  token1Decimals
+) {
   logNewLine("INF", "checking current AUM balances in tokenizedLp...");
   let aumToken0, aumToken1;
   try {
@@ -28,7 +34,13 @@ async function getAUMBalances(tokenizedLpContract, token0Addr, token0Decimals, t
   }
 }
 
-async function getIdleBalances(token0Contract, token0Decimals, token1Contract, token1Decimals, lpTokenAddr) {
+async function getIdleBalances(
+  token0Contract,
+  token0Decimals,
+  token1Contract,
+  token1Decimals,
+  lpTokenAddr
+) {
   logNewLine("INF", "checking current idle balances...");
   let idlingToken0, idlingToken1;
   try {
@@ -44,7 +56,11 @@ async function getIdleBalances(token0Contract, token0Decimals, token1Contract, t
   }
 }
 
-async function getCurrentBounds(tokenizedLpContract, token0Decimals, token1Decimals) {
+async function getCurrentBounds(
+  tokenizedLpContract,
+  token0Decimals,
+  token1Decimals
+) {
   logNewLine("INF", "checking current tick, and position bounds...");
 
   let lowerTick, upperTick, currentTick, bpsLower, bpsUpper;
@@ -56,9 +72,15 @@ async function getCurrentBounds(tokenizedLpContract, token0Decimals, token1Decim
     bpsLower = await tokenizedLpContract.bpsRangeLower();
     bpsUpper = await tokenizedLpContract.bpsRangeUpper();
 
-    const currentTickPrice = tickToPrice(Number(currentTick.toString())) * 10 ** (token0Decimals - token1Decimals);
-    const lowerTickPrice = tickToPrice(Number(lowerTick.toString())) * 10 ** (token0Decimals - token1Decimals);
-    const upperTickPrice = tickToPrice(Number(upperTick.toString())) * 10 ** (token0Decimals - token1Decimals);
+    const currentTickPrice =
+      tickToPrice(Number(currentTick.toString())) *
+      10 ** (token0Decimals - token1Decimals);
+    const lowerTickPrice =
+      tickToPrice(Number(lowerTick.toString())) *
+      10 ** (token0Decimals - token1Decimals);
+    const upperTickPrice =
+      tickToPrice(Number(upperTick.toString())) *
+      10 ** (token0Decimals - token1Decimals);
 
     const percentBelow =
       ((currentTickPrice - lowerTickPrice) / currentTickPrice) * 100;
@@ -133,10 +155,16 @@ const getPriceDelta = async function (
         : oraclePrice - spotPrice;
     priceDelta = (delta * ethers.parseUnits("1", token1Decimals)) / oraclePrice;
     logData(
-      `spotPrice:   1 Token0 for ${ethers.formatUnits(spotPrice, token1Decimals)} Token1`
+      `spotPrice:   1 Token0 for ${ethers.formatUnits(
+        spotPrice,
+        token1Decimals
+      )} Token1`
     );
     logData(
-      `oraclePrice: 1 Token0 for ${ethers.formatUnits(oraclePrice, token1Decimals)} Token1`
+      `oraclePrice: 1 Token0 for ${ethers.formatUnits(
+        oraclePrice,
+        token1Decimals
+      )} Token1`
     );
     logData(
       `priceDelta: ${ethers.formatEther(
@@ -181,6 +209,28 @@ async function logPositionInfo(
     lpTokenAddr
   );
   if (idlingToken0 == undefined || idlingToken1 == undefined) success = false;
+  const deployedT0 = aumToken0 - idlingToken0;
+  const deployedT1 = aumToken1 - idlingToken1;
+  const deployed1InToken0 = await getToken1AmtInToken0(
+    deployedT1,
+    token0Addr,
+    token0Decimals,
+    token1Addr,
+    token1Decimals,
+    tokenizedLpContract
+  );
+  if (deployed1InToken0 == undefined) success = false;
+  logData(`------------------------------------------------`);
+  logData(
+    `at CLPOOL: Token0: ${ethers.formatUnits(deployedT0, token0Decimals)}`
+  );
+  logData(
+    `at CLPOOL: Token1: ${ethers.formatUnits(deployedT1, token1Decimals)}`
+  );
+  const token0Concentration =
+    Number(deployedT0) / (Number(deployedT0) + Number(deployed1InToken0));
+  logData(`Token0 value concentration: ${token0Concentration.toFixed(5)} %`);
+  logData(`------------------------------------------------`);
   const { lowerTick, upperTick, currentTick } = await getCurrentBounds(
     tokenizedLpContract,
     token0Decimals,
@@ -193,7 +243,13 @@ async function logPositionInfo(
   )
     success = false;
   const { priceDelta, hysteresis, spotPrice, oraclePrice } =
-    await getPriceDelta(tokenizedLpContract, token0Addr, token0Decimals, token1Addr, token1Decimals);
+    await getPriceDelta(
+      tokenizedLpContract,
+      token0Addr,
+      token0Decimals,
+      token1Addr,
+      token1Decimals
+    );
   if (
     priceDelta == undefined ||
     hysteresis == undefined ||
@@ -206,13 +262,18 @@ async function logPositionInfo(
 
 async function getToken1AmtInToken0(
   idlingToken1,
-  token1Addr,
   token0Addr,
+  token0Decimals,
+  token1Addr,
+  token1Decimals,
   tokenizedLpContract
 ) {
   logNewLine(
     "INF",
-    `estimating token1 amount ${ethers.formatEther(idlingToken1)} in token0`
+    `estimating token1 amount ${ethers.formatUnits(
+      idlingToken1,
+      token1Decimals
+    )} in token0`
   );
   let idlingToken1InToken0;
   try {
@@ -221,7 +282,12 @@ async function getToken1AmtInToken0(
       token0Addr,
       idlingToken1
     );
-    logData(`\tanswer: ${ethers.formatEther(idlingToken1InToken0)} Token0`);
+    logData(
+      `\tanswer: ${ethers.formatUnits(
+        idlingToken1InToken0,
+        token0Decimals
+      )} Token0`
+    );
     return idlingToken1InToken0;
   } catch (error) {
     logNewLine("ERR", `failed to fetch: ${error}`);
@@ -237,7 +303,8 @@ async function executeSwapIdle(
 ) {
   logNewLine(
     "INF",
-    `executing half idle for swap amount: ${ethers.formatEther(swapAmount)}, ${direction > 0 ? "token0 -> token1" : "token1 -> token0"
+    `executing half idle for swap amount: ${ethers.formatEther(swapAmount)}, ${
+      direction > 0 ? "token0 -> token1" : "token1 -> token0"
     }`
   );
   console.log("direction", direction);
