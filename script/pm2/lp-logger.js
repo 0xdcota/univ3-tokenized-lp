@@ -35,16 +35,30 @@ const actionFn = async () => {
     `token1Addr: ${chain.token1Addr}, ${chain.token1Name}, decimals: ${chain.token1Decimals}`
   );
 
-  /// Build contract instances
+  // Throw if any required env vars are missing
   if (!chain.chainId)
     throw `Please define LOCAL_CHAIN_ID in pm2-ecosystem.config.js`;
   if (!chain.rpc) throw `Please define LOCAL_RPC in pm2-ecosystem.config.js`;
-  if (!process.env.PRIVATE_KEY) throw "Please set PRIVATE_KEY in .env";
+  if (!chain.lpTokenAddr)
+    throw `Please define LOCAL_LP_TOKEN_ADDR in pm2-ecosystem.config.js`;
+  if (!chain.token0Addr)
+    throw `Please define LOCAL_TOKEN0_ADDR in pm2-ecosystem.config.js`;
+  if (!chain.token0Name)
+    throw `Please define LOCAL_TOKEN0_NAME in pm2-ecosystem.config.js`;
+  if (!chain.token0Decimals)
+    throw `Please define LOCAL_TOKEN0_DECIMALS in pm2-ecosystem.config.js`;
+  if (!chain.token1Addr)
+    throw `Please define LOCAL_TOKEN1_ADDR in pm2-ecosystem.config.js`;
+  if (!chain.token1Name)
+    throw `Please define LOCAL_TOKEN1_NAME in pm2-ecosystem.config.js`;
+  if (!chain.token1Decimals)
+    throw `Please define LOCAL_TOKEN1_DECIMALS in pm2-ecosystem.config.js`;
 
+  /// Build contract instances
   const provider = new JsonRpcProvider(chain.rpc, undefined, {
     staticNetwork: true,
   });
-  const wallet = new ethers.Wallet(process.env.PRIVATE_KEY);
+  const wallet = new ethers.Wallet.createRandom();
   const signer = wallet.connect(provider);
   const tokenizedLp = new ethers.Contract(
     chain.lpTokenAddr,

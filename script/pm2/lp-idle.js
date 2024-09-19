@@ -2,9 +2,10 @@ require("dotenv").config();
 const { ethers, JsonRpcProvider } = require("ethers");
 const { logNewLine, logData } = require("../utils");
 const {
-  getPriceDelta,
-  executeAutoRebalance,
-  logPositionInfo,
+  executeSwapIdle,
+  getCurrentBounds,
+  getIdleBalances,
+  getToken1AmtInToken0,
 } = require("./lp-utils");
 
 const erc20Artifact = require("../../out/ERC20.sol/ERC20.json");
@@ -15,7 +16,7 @@ const actionFn = async () => {
   console.log(
     "------------------------------------------------------------------"
   );
-  logNewLine("INF", "starting lp-rebalance routine");
+  logNewLine("INF", "starting lp-idle routine");
 
   const chain = {
     chainId: process.env.LOCAL_CHAIN_ID.toString(),
@@ -27,6 +28,7 @@ const actionFn = async () => {
     token1Addr: process.env.LOCAL_TOKEN1_ADDR,
     token1Name: process.env.LOCAL_TOKEN1_NAME,
     token1Decimals: Number(process.env.LOCAL_TOKEN1_DECIMALS),
+    token0IdleThreshold: process.env.LOCAL_TOKEN0_IDLE_THRESHOLD,
   };
 
   logData(`Chain: ${chain.chainId}`);
@@ -37,6 +39,12 @@ const actionFn = async () => {
   );
   logData(
     `token1Addr: ${chain.token1Addr}, ${chain.token1Name}, decimals: ${chain.token1Decimals}`
+  );
+  logData(
+    `token0IdleThreshold: ${ethers.formatUnits(
+      chain.token0IdleThreshold,
+      chain.token0Decimals
+    )}`
   );
 
   // Throw if any required env vars are missing
@@ -57,6 +65,8 @@ const actionFn = async () => {
     throw `Please define LOCAL_TOKEN1_NAME in pm2-ecosystem.config.js`;
   if (!chain.token1Decimals)
     throw `Please define LOCAL_TOKEN1_DECIMALS in pm2-ecosystem.config.js`;
+  if (!chain.token0IdleThreshold)
+    throw `Please define LOCAL_TOKEN0_IDLE_THRESHOLD in pm2-ecosystem.config.js`;
   if (!process.env.PRIVATE_KEY) throw `Please define PRIVATE_KEY in .env file`;
 
   /// Build contract instances
@@ -81,75 +91,94 @@ const actionFn = async () => {
     erc20Artifact.abi,
     signer
   );
-
   let success = true;
-  const { priceDelta, hysteresis, spotPrice, oraclePrice } =
-    await getPriceDelta(
-      tokenizedLp,
-      chain.token0Addr,
-      chain.token0Decimals,
-      chain.token1Addr,
-      chain.token1Decimals
-    );
-  if (
-    priceDelta == undefined ||
-    hysteresis == undefined ||
-    spotPrice == undefined ||
-    oraclePrice == undefined
-  ) {
+
+  const { idlingToken0, idlingToken1 } = await getIdleBalances(
+    token0Contract,
+    chain.token0Decimals,
+    token1Contract,
+    chain.token1Decimals,
+    chain.lpTokenAddr
+  );
+  if (idlingToken0 == undefined || idlingToken1 == undefined) {
     success = false;
   }
 
-  if (priceDelta > hysteresis) {
-    const { amount0, amount1 } = await executeAutoRebalance(
+  const idlingToken1InToken0 = await getToken1AmtInToken0(
+    idlingToken1,
+    chain.token0Addr,
+    chain.token0Decimals,
+    chain.token1Addr,
+    chain.token1Decimals,
+    tokenizedLp
+  );
+  if (idlingToken1InToken0 == undefined) {
+    success = false;
+  }
+
+  const { lower, upper } = await getCurrentBounds(tokenizedLp);
+  if (lower == undefined || upper == undefined) {
+    success = false;
+  }
+  const token1Range = lower;
+  const token0Range = upper;
+  const range = token1Range + token0Range;
+
+  const [swapWhichTokenContract, swapDecimals] =
+    idlingToken0 > idlingToken1InToken0
+      ? [token0Contract, chain.token0Decimals]
+      : [token1Contract, chain.token1Decimals];
+  const compareIdleAmount =
+    idlingToken0 > idlingToken1InToken0 ? idlingToken0 : idlingToken1InToken0;
+  const swapAmount =
+    idlingToken0 > idlingToken1InToken0
+      ? (idlingToken0 * token1Range) / range
+      : (idlingToken1 * token0Range) / range;
+
+  const direction = swapWhichTokenContract.target == chain.token0Addr ? 1 : -1;
+  const formatCompareIdleAmount = Number(
+    ethers.formatUnits(compareIdleAmount, chain.token0Decimals)
+  ).toFixed(8);
+  const formatThreshold = Number(
+    ethers.formatUnits(chain.token0IdleThreshold, chain.token0Decimals)
+  ).toFixed(8);
+  const formatSwapAmount = Number(
+    ethers.formatUnits(swapAmount, swapDecimals)
+  ).toFixed(8);
+
+  logNewLine(
+    "INF",
+    `should swap?: ${
+      BigInt(compareIdleAmount) > BigInt(chain.token0IdleThreshold)
+    }, idleAmount: ${formatCompareIdleAmount} > threshold: ${formatThreshold}`
+  );
+
+  if (BigInt(compareIdleAmount) > BigInt(chain.token0IdleThreshold)) {
+    logData(
+      `swapWhich: ${
+        swapWhich.target == chain.token0Addr
+          ? chain.token0Name
+          : chain.token1Name
+      }, swapAmount: ${formatSwapAmount}`
+    );
+
+    logNewLine("INF", "attempt to swap idle amount...");
+    const { amount0, amount1 } = await executeSwapIdle(
       tokenizedLp,
-      true,
-      true
+      swapAmount,
+      direction,
+      READ_ONLY
     );
     if (amount0 == undefined || amount1 == undefined) {
       success = false;
     }
-    const direction0to1 = amount0 < 0;
-    const formattedAmount0 = direction0to1
-      ? ethers.formatUnits(-1n * amount0, chain.token0Decimals)
-      : ethers.formatUnits(amount0, chain.token0Decimals);
-    const formattedAmount1 = direction0to1
-      ? ethers.formatUnits(amount1, chain.token1Decimals)
-      : ethers.formatUnits(-1n * amount1, chain.token1Decimals);
-    if (direction0to1) {
-      logNewLine(
-        "INF",
-        `traded: ${formattedAmount0} ${chain.token0Name}, ${formattedAmount1} ${chain.token1Name}`
-      );
-    } else {
-      logNewLine(
-        "INF",
-        `traded: ${formattedAmount1} ${chain.token1Name}, ${formattedAmount0} ${chain.token0Name}`
-      );
-    }
-
-    // Wait 15 seconds
-    await new Promise((resolve) => setTimeout(resolve, 15000));
-
-    const innerLogSuccess = await logPositionInfo(
-      chain.lpTokenAddr,
-      tokenizedLp,
-      chain.token0Addr,
-      chain.token0Decimals,
-      token0Contract,
-      chain.token1Addr,
-      chain.token1Decimals,
-      token1Contract
-    );
-    if (!innerLogSuccess) {
-      logNewLine("ERR", `failed to log position info`);
-    }
   }
 
   if (!success) {
-    logNewLine("ERR", `failed execution lp-rebalance`);
+    logNewLine("ERR", `failed execution lp-idle`);
+  } else {
+    logNewLine("INF", "lp-idle routine complete!");
   }
-  logNewLine("INF", "lp-rebalance routine complete!");
 };
 
 // Do not change this.

@@ -298,16 +298,18 @@ async function getToken1AmtInToken0(
 async function executeSwapIdle(
   tokenizedLpContract,
   swapAmount,
+  swapDecimals,
   direction,
+  token0Decimals,
+  token1Decimals,
   readOnly
 ) {
   logNewLine(
     "INF",
-    `executing half idle for swap amount: ${ethers.formatEther(swapAmount)}, ${
+    `executing idle swap: ${ethers.formatUnits(swapAmount, swapDecimals)}, ${
       direction > 0 ? "token0 -> token1" : "token1 -> token0"
     }`
   );
-  console.log("direction", direction);
   let amount0, amount1;
   try {
     [amount0, amount1] =
@@ -339,19 +341,24 @@ async function executeSwapIdle(
       );
     }
     if (direction > 0) {
-      const formatAmount0 = Number(ethers.formatEther(amount0)).toFixed(8);
-      const formatAmount1 = Number(ethers.formatEther(amount1 * -1n)).toFixed(
-        8
-      );
+      const formatAmount0 = Number(
+        ethers.formatUnits(amount0, token0Decimals)
+      ).toFixed(8);
+      const formatAmount1 = Number(
+        ethers.formatUnits(amount1 * -1n),
+        token1Decimals
+      ).toFixed(8);
       logNewLine(
         "INF",
         `traded amount0: ${formatAmount0} for ${formatAmount1}`
       );
     } else {
-      const formatAmount0 = Number(ethers.formatEther(amount0 * -1n)).toFixed(
-        8
-      );
-      const formatAmount1 = Number(ethers.formatEther(amount1)).toFixed(8);
+      const formatAmount0 = Number(
+        ethers.formatUnits(amount0 * -1n, token0Decimals)
+      ).toFixed(8);
+      const formatAmount1 = Number(
+        ethers.formatUnits(amount1, token1Decimals)
+      ).toFixed(8);
       logNewLine(
         "INF",
         `traded amount1: ${formatAmount1} for ${formatAmount0}`

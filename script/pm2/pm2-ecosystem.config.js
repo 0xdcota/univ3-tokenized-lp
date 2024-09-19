@@ -12,6 +12,7 @@ const TOKEN1_ADDR_BASE = `${process.env.TOKEN1_ADDR_BASE}`;
 const TOKEN1_NAME_BASE = `${process.env.TOKEN1_NAME_BASE}`;
 const TOKEN1_DECIMALS_BASE = `${process.env.TOKEN1_DECIMALS_BASE}`;
 const LP_TOKEN_ADDR_BASE = `${process.env.LP_TOKEN_ADDR_BASE}`;
+const TOKEN0_IDLE_THRESHOLD_BASE = `${process.env.TOKEN0_IDLE_THRESHOLD_BASE}`;
 
 // Polygon
 const RPC_URL_POLYGON = `${process.env.RPC_POLYGON}`;
@@ -22,6 +23,7 @@ const TOKEN1_ADDR_POLYGON = `${process.env.TOKEN1_ADDR_POLYGON}`;
 const TOKEN1_NAME_POLYGON = `${process.env.TOKEN1_NAME_POLYGON}`;
 const TOKEN1_DECIMALS_POLYGON = `${process.env.TOKEN1_DECIMALS_POLYGON}`;
 const LP_TOKEN_ADDR_POLYGON = `${process.env.LP_TOKEN_ADDR_POLYGON}`;
+const TOKEN0_IDLE_THRESHOLD_POLYGON = `${process.env.TOKEN0_IDLE_THRESHOLD_POLYGON}`;
 
 module.exports = {
   apps: [
