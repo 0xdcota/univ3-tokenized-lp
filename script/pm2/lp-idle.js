@@ -116,13 +116,15 @@ const actionFn = async () => {
     success = false;
   }
 
-  const { lower, upper } = await getCurrentBounds(tokenizedLp);
-  if (lower == undefined || upper == undefined) {
+  const { bpsLower, bpsUpper } = await getCurrentBounds(
+    tokenizedLp,
+    chain.token0Decimals,
+    chain.token1Decimals
+  );
+  if (bpsLower == undefined || bpsUpper == undefined) {
     success = false;
   }
-  const token1Range = lower;
-  const token0Range = upper;
-  const range = token1Range + token0Range;
+  const range = bpsLower + bpsUpper;
 
   const [swapWhichTokenContract, swapDecimals] =
     idlingToken0 > idlingToken1InToken0
@@ -132,8 +134,8 @@ const actionFn = async () => {
     idlingToken0 > idlingToken1InToken0 ? idlingToken0 : idlingToken1InToken0;
   const swapAmount =
     idlingToken0 > idlingToken1InToken0
-      ? (idlingToken0 * token1Range) / range
-      : (idlingToken1 * token0Range) / range;
+      ? (idlingToken0 * bpsLower) / range
+      : (idlingToken1 * bpsUpper) / range;
 
   const direction = swapWhichTokenContract.target == chain.token0Addr ? 1 : -1;
   const formatCompareIdleAmount = Number(
@@ -156,7 +158,7 @@ const actionFn = async () => {
   if (BigInt(compareIdleAmount) > BigInt(chain.token0IdleThreshold)) {
     logData(
       `swapWhich: ${
-        swapWhich.target == chain.token0Addr
+        swapWhichTokenContract.target == chain.token0Addr
           ? chain.token0Name
           : chain.token1Name
       }, swapAmount: ${formatSwapAmount}`
@@ -166,8 +168,11 @@ const actionFn = async () => {
     const { amount0, amount1 } = await executeSwapIdle(
       tokenizedLp,
       swapAmount,
+      swapDecimals,
       direction,
-      READ_ONLY
+      chain.token0Decimals,
+      chain.token1Decimals,
+      false
     );
     if (amount0 == undefined || amount1 == undefined) {
       success = false;
