@@ -310,6 +310,7 @@ async function executeSwapIdle(
       direction > 0 ? "token0 -> token1" : "token1 -> token0"
     }`
   );
+  console.log("direction", direction); // DEBUGGING
   let amount0, amount1;
   try {
     [amount0, amount1] =
