@@ -4,15 +4,8 @@ optimizer_runs = 10_000
 src = "src"
 out = "out"
 libs = ["lib"]
-
-[profile.base]
 libraries = [
-    "src/libraries/UniV3MathHelper.sol:UniV3MathHelper:0x2d4f1a72e51c586a580315631f885f5f307e5b57"
-]
-
-[profile.polygon]
-libraries = [
-    "src/libraries/UniV3MathHelper.sol:UniV3MathHelper:0x9300c266c57c113cf53c02d3861c85f98954b22b"
+    "src/libraries/UniV3MathHelper.sol:UniV3MathHelper:0x67449275461664e8CA3e2D1a6405A0B29E66b075"
 ]
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
