@@ -2,7 +2,7 @@
 pragma solidity ^0.8.0;
 
 import {IPriceFeed} from "../../src/interfaces/IPriceFeed.sol";
-import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {Ownable} from "@openzeppelin/access/Ownable.sol";
 
 contract MockCLAggregatorV2 is Ownable {
     event SetReferenceAggregator(address newRefAggregator);
